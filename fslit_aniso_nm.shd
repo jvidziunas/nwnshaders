@@ -3,10 +3,14 @@
 fslit_aniso_nm.shd
 
 */
+#define PI 3.14159265359
 #define saturate(val) clamp((val), 0.0, 1.0)
 
 const int   MAX_LIGHTS     = 8;
 const float NO_ATTENUATION = 0.0;
+const float fShininessMax  = 80.0;
+const float fShininessMin  = 8.0;
+const float fHdrExposure   = 1.7;
 
 uniform sampler2D texUnit0;	// decal
 uniform sampler2D texUnit1;	// normal map
@@ -46,9 +50,6 @@ varying      float fFogFragCoord;
 vec3 Ambient;
 vec3 Diffuse;
 vec3 Specular;
-
-const float fShininessMax = 18.0;
-const float fShininessMin = 1.0;
 
 struct Surface {
 	vec3  normal;
@@ -144,14 +145,14 @@ void getContribution(in Surface surface, in Light light) {
 	Ambient  += attenuation * light.ambient;
 	// [Kajiya, Kay, et al. 1989] BRDF diffuse term is sin(theta), which we derive from trig identities.
 	Diffuse  += attenuation * sqrt(1.0 - tDotL * tDotL) * light.diffuse;
-	Specular += attenuation * saturate(nDotL * 4.0) * (d * g) * light.specular;
+	Specular += attenuation * saturate(nDotL * 3.0) * (d * g) * light.specular;
 }
 
 //=============================================================================
 //
 // computeLighting()
 //
-// Calculates lighting contribution all lights.
+// Calculates lighting contribution for all lights.
 //
 //=============================================================================
 void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
@@ -208,7 +209,7 @@ vec3 hableFilm(vec3 x) {
 
 //=============================================================================
 //
-// hableFilm()
+// acesFilm()
 //
 // ACES standard photographic stock tone curve.
 //=============================================================================
@@ -222,22 +223,22 @@ vec3 acesFilm(vec3 x) {
 }
 
 void main (void) {
-	vec3  baseColor = (texture0Bound != 0) ? asLinear(texture2D(texUnit0, vTc.xy).rgb) : vec3(1.0);
+	vec4  baseColor = (texture0Bound != 0) ? asLinear(texture2D(texUnit0, vTc.xy)) : vec4(1.0);
+	vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
 	mat3  mTSB      = buildTSB();
 	vec3  normal    = normalize(mTSB * (texture2D(texUnit1, vTc.xy).rgb * (255.0/127.0) - (128.0/127.0)));
-	vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
 	float opacity   = vColorOut.a * materialFrontDiffuse.a;
 
 	computeLighting(/*tangent =*/mTSB[0], /*bitangent =*/mTSB[1], normal, vPosOut.xyz, asRoughness(specular.a));
 
 	vec3 color = materialFrontEmissive.rgb +
-    			 baseColor * (frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
-    			 Specular * specular.rgb;
+    			 baseColor.rgb * (frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
+    			 specular.rgb * Specular;
 
 	if (fogEnabled != 0) {
 		color.rgb = mix(color.rgb, fogColor.rgb, saturate(fFogFragCoord));
 	}
 
 	// Fake over-exposure for pseudo-HDR.
-	gl_FragColor = vec4(hableFilm(color * 1.7), opacity);
+	gl_FragColor = vec4(hableFilm(color * fHdrExposure), opacity);
 }

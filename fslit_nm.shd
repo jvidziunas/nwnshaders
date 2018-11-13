@@ -12,6 +12,9 @@ fslit_nm.shd
 
 const int   MAX_LIGHTS     = 8;
 const float NO_ATTENUATION = 0.0;
+const float fShininessMax  = 80.0;
+const float fShininessMin  = 8.0;
+const float fHdrExposure   = 1.7;
 
 uniform sampler2D texUnit0;	// decal
 uniform sampler2D texUnit1;	// normal map
@@ -25,10 +28,10 @@ uniform highp mat4 m_mvp;
 uniform highp mat4 m_mv;
 uniform highp mat3 m_normal;
 
-uniform lowp	vec4  lightAmbient[MAX_LIGHTS];
-uniform lowp	vec4  lightDiffuse[MAX_LIGHTS];
-uniform lowp	vec4  lightSpecular[MAX_LIGHTS];
-uniform mediump	vec4  lightPosition[MAX_LIGHTS];
+uniform lowp    vec4  lightAmbient[MAX_LIGHTS];
+uniform lowp    vec4  lightDiffuse[MAX_LIGHTS];
+uniform lowp    vec4  lightSpecular[MAX_LIGHTS];
+uniform mediump vec4  lightPosition[MAX_LIGHTS];
 uniform mediump float lightQuadraticAtten[MAX_LIGHTS];
 uniform         int   numLights;
 
@@ -54,9 +57,6 @@ vec3 Ambient  = vec3(0.0);
 vec3 Diffuse  = vec3(0.0);
 vec3 Specular = vec3(0.0);
 
-const float fShininessMax = 80.0;
-const float fShininessMin = 8.0;
-
 struct Surface {
 	vec3  normal;
 	vec3  toEye;
@@ -80,8 +80,8 @@ float getToksvigExponent(inout vec3 bump, in float exponent) {
 	 * Since a saturate modifier will always be cheaper than an arithmetic clamp (or, in the worst case,
 	 * exactly equal if H/W lacks a notion of said modifier) prefer the [0-1] range over biasing, even
 	 * though this could result in divide-by-zero. */
-    float rlen = 1.0 / saturate(len);
-    return exponent / (exponent * (rlen - 1.0) + 1.0);
+	float rlen = 1.0 / saturate(len);
+	return exponent / (exponent * (rlen - 1.0) + 1.0);
 }
 
 float asRoughness(in float s) {
@@ -127,14 +127,14 @@ void getContribution(in Surface surface, in Light light) {
 
 	Ambient  += attenuation * light.ambient;
 	Diffuse  += attenuation * saturate(nDotL) * light.diffuse;
-	Specular += attenuation * saturate(nDotL * 4.0) * (d * g) * light.specular;
+	Specular += attenuation * saturate(nDotL * 3.0) * (d * g) * light.specular;
 }
 
 //=============================================================================
 //
 // computeLighting()
 //
-// Calculates lighting contribution all lights.
+// Calculates lighting contribution for all lights.
 //
 //=============================================================================
 void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
@@ -165,11 +165,11 @@ void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
 //
 //=============================================================================
 mat3 buildTSB() {
-    vec3 vNormal  = normalize(vNormalOut);
-    // Gram-Schmidt orthogonalization.
-    vec3 vTangent = normalize(vTangentOut - vNormal * dot(vTangentOut, vNormal));
-    
-    return mat3(vTangent, cross(vNormal, vTangent) * fTextureHandedness, vNormal);
+	vec3 vNormal  = normalize(vNormalOut);
+	// Gram-Schmidt orthogonalization.
+	vec3 vTangent = normalize(vTangentOut - vNormal * dot(vTangentOut, vNormal));
+
+	return mat3(vTangent, cross(vNormal, vTangent) * fTextureHandedness, vNormal);
 }
 
 //=============================================================================
@@ -181,53 +181,53 @@ mat3 buildTSB() {
 // sRGB framebuffers so we don't double-correct output
 //=============================================================================
 vec3 hableFilm(vec3 x) {
-    float a = 6.2;
-    float b = 0.5;
-    float c = 6.2;
-    float d = 1.7;
-    float e = 0.06;
-    return x*(a*x+b)/(x*(c*x+d)+e);
+	float a = 6.2;
+	float b = 0.5;
+	float c = 6.2;
+	float d = 1.7;
+	float e = 0.06;
+	return x*(a*x+b)/(x*(c*x+d)+e);
 }
 
 //=============================================================================
 //
-// hableFilm()
+// acesFilm()
 //
 // ACES standard photographic stock tone curve.
 //=============================================================================
 vec3 acesFilm(vec3 x) {
-    float a = 2.51;
-    float b = 0.03;
-    float c = 2.43;
-    float d = 0.59;
-    float e = 0.14;
-    return x*(a*x+b)/(x*(c*x+d)+e);
+	float a = 2.51;
+	float b = 0.03;
+	float c = 2.43;
+	float d = 0.59;
+	float e = 0.14;
+	return x*(a*x+b)/(x*(c*x+d)+e);
 }
 
 void main(void) {
 	vec4  baseColor = texture0Bound != 0 ? asLinear(texture2D(texUnit0, vTc.xy)) : vec4(1.0);
-	vec3  normal    = buildTSB() * (texture2D(texUnit1, vTc.xy).rgb * (255.0/127.0) - (128.0/127.0));
 	vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
+	vec3  normal    = buildTSB() * (texture2D(texUnit1, vTc.xy).rgb * (255.0/127.0) - (128.0/127.0));
 	float opacity   = baseColor.a * vColorOut.a * materialFrontDiffuse.a;
 #if ROUGHNESS_MAP == 1
 	specular.a = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, 1.0 - specular.g));
 #else
-    specular.a = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, specular.a));
+	specular.a = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, specular.a));
 #endif
-    computeLighting(normal, vPosOut.xyz, asRoughness(specular.a));
+	computeLighting(normal, vPosOut.xyz, asRoughness(specular.a));
 
-    vec3 color = materialFrontEmissive.rgb +
-    			 baseColor.rgb * (frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
-    			 Specular * specular.rgb;
+	vec3 color = materialFrontEmissive.rgb +
+				 baseColor.rgb * (frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
+				 specular.rgb * Specular;
 #if GLOW_MAP == 1
-    //Glow.
-    color.rgb = mix(color.rgb, vec3(1.0), specular.b);
+	// Glow.
+	color = mix(color, vec3(1.0), specular.b);
 #endif
 
     if (fogEnabled != 0) {
-    	color.rgb = mix(color.rgb, fogColor.rgb, saturate(fFogFragCoord));
+    	color = mix(color, fogColor.rgb, saturate(fFogFragCoord));
     }
 
 	// Fake over-exposure for pseudo-HDR.
-	gl_FragColor = vec4(hableFilm(color), opacity);
+	gl_FragColor = vec4(hableFilm(color * fHdrExposure), opacity);
 }
