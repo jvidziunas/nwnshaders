@@ -1,0 +1,233 @@
+/*
+
+fslit_nm.shd
+
+*/
+#define PI 3.14159265359
+// Set to one to read roughness from specular map green channel.
+#define ROUGHNESS_MAP 0
+// Set to one to read roughness from specular map blue channel.
+#define GLOW_MAP 0
+#define saturate(val) clamp((val), 0.0, 1.0)
+
+const int   MAX_LIGHTS     = 8;
+const float NO_ATTENUATION = 0.0;
+
+uniform sampler2D texUnit0;	// decal
+uniform sampler2D texUnit1;	// normal map
+uniform sampler2D texUnit2;	// specular map
+
+uniform lowp vec4 fogColor;
+uniform int       fogEnabled;
+uniform int       texture0Bound;
+
+uniform highp mat4 m_mvp;
+uniform highp mat4 m_mv;
+uniform highp mat3 m_normal;
+
+uniform lowp	vec4  lightAmbient[MAX_LIGHTS];
+uniform lowp	vec4  lightDiffuse[MAX_LIGHTS];
+uniform lowp	vec4  lightSpecular[MAX_LIGHTS];
+uniform mediump	vec4  lightPosition[MAX_LIGHTS];
+uniform mediump float lightQuadraticAtten[MAX_LIGHTS];
+uniform         int   numLights;
+
+uniform mediump	vec4  materialFrontAmbient;
+uniform mediump	vec4  materialFrontDiffuse;
+uniform mediump	vec4  materialFrontSpecular;
+uniform mediump	vec4  materialFrontEmissive;
+uniform mediump	float materialFrontShininess;
+uniform lowp    vec4  frontLightModelProductSceneColor;
+
+varying vec4      vPosOut; // This will be in camera space.
+varying vec2      vTc;
+varying lowp vec4 vColorOut;
+varying vec3      vStaticLightDirOut;
+
+varying vec3  vTangentOut; // Our tangent space basis in camera space.  It has been interpolated, so normalization will be required.
+varying vec3  vNormalOut;		
+varying float fTextureHandedness; // Just the handedness attribute passed from the vertex shader. It should always be the same for all vertices of a face so interpolation will not be an issue.
+
+varying float fFogFragCoord;
+
+vec3 Ambient  = vec3(0.0);
+vec3 Diffuse  = vec3(0.0);
+vec3 Specular = vec3(0.0);
+
+const float fShininessMax = 80.0;
+const float fShininessMin = 8.0;
+
+struct Surface {
+	vec3  normal;
+	vec3  toEye;
+	float alpha;
+};
+
+struct Light {
+	vec3  direction;
+	vec3  ambient;
+	vec3  diffuse;
+	vec3  specular;
+	float attenuationCoefficient;
+};
+
+float getToksvigExponent(inout vec3 bump, in float exponent) {
+	float len = length(bump);
+	// Sneak a normalize in here since it's useful.
+	bump /= len;
+
+	/* While the texture could in theory return an all-0 result, this is very unlikely under typical use.
+	 * Since a saturate modifier will always be cheaper than an arithmetic clamp (or, in the worst case,
+	 * exactly equal if H/W lacks a notion of said modifier) prefer the [0-1] range over biasing, even
+	 * though this could result in divide-by-zero. */
+    float rlen = 1.0 / saturate(len);
+    return exponent / (exponent * (rlen - 1.0) + 1.0);
+}
+
+float asRoughness(in float s) {
+    return clamp(pow(2.0 / (s + 2.0), 0.25), 1e-5, 1.0);
+}
+
+vec3 asLinear(in vec3 color) {
+	return pow(color, vec3(2.2));
+}
+
+vec4 asLinear(in vec4 color) {
+	return vec4(asLinear(color.rgb), color.a);
+}
+
+vec3 asGamma(in vec3 color) {
+	return pow(color, vec3(1.0/2.2));
+}
+
+vec4 asGamma(in vec4 color) {
+	return vec4(asGamma(color.rgb), color.a);
+}
+
+float getSmithVisibility(in float nDotE, in float nDotL, in float alpha) {
+	float smithE = nDotE + sqrt(nDotE * (nDotE - nDotE * alpha) + alpha);
+	float smithL = nDotL + sqrt(nDotL * (nDotL - nDotL * alpha) + alpha);
+	return 1.0 / (smithE * smithL);
+}
+
+// Normalized isotropic GGX/Trowbridge-Reitz
+float getGGX(in float nDotH, in float alpha) {
+	float d = (nDotH * alpha - nDotH) * nDotH + 1.0;
+	return alpha / (3.14159265358979323846 * d * d);
+}
+
+void getContribution(in Surface surface, in Light light) {
+	vec3  toLight     = normalize(light.direction);
+	vec3  halfVector  = normalize(surface.toEye + toLight);
+	float attenuation = 1.0 / (light.attenuationCoefficient * dot(light.direction, light.direction) + 1.0);
+	float nDotL       = dot(surface.normal, toLight);
+
+	float d = getGGX(dot(surface.normal, halfVector), surface.alpha);
+	float g = getSmithVisibility(dot(surface.normal, surface.toEye), nDotL, surface.alpha);
+
+	Ambient  += attenuation * light.ambient;
+	Diffuse  += attenuation * saturate(nDotL) * light.diffuse;
+	Specular += attenuation * saturate(nDotL * 4.0) * (d * g) * light.specular;
+}
+
+//=============================================================================
+//
+// computeLighting()
+//
+// Calculates lighting contribution all lights.
+//
+//=============================================================================
+void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
+	vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
+	Surface surface = Surface(normal, toEye, roughness * roughness);
+
+	// Clear the light intensity accumulators
+	Ambient  = vec3(0.0);
+	Diffuse  = vec3(0.0);
+	Specular = vec3(0.0);
+
+	if (dot(vStaticLightDirOut, vStaticLightDirOut) > 0.0) {
+		getContribution(surface, Light(vStaticLightDirOut.xyz, /*ambient =*/vec3(0.0), /*diffuse =*/vColorOut.rgb, /*specular =*/vColorOut.rgb, /*attenuationCoefficient =*/NO_ATTENUATION));
+	} else {
+		Ambient = vColorOut.rgb;
+	}
+
+	for (int light = 0; light < numLights; light++) {
+		getContribution(surface, Light(/*direction =*/lightPosition[light].xyz - position, lightAmbient[light].rgb, lightDiffuse[light].rgb, lightSpecular[light].rgb, lightQuadraticAtten[light]));
+	}
+}
+
+//=============================================================================
+//
+// buildTSB()
+//
+// Construct our tangent-space basis matrix from the input data
+//
+//=============================================================================
+mat3 buildTSB() {
+    vec3 vNormal  = normalize(vNormalOut);
+    // Gram-Schmidt orthogonalization.
+    vec3 vTangent = normalize(vTangentOut - vNormal * dot(vTangentOut, vNormal));
+    
+    return mat3(vTangent, cross(vNormal, vTangent) * fTextureHandedness, vNormal);
+}
+
+//=============================================================================
+//
+// hableFilm()
+//
+// John Hable/'Uncharted 2' tone curve. Includes gamma 2.2 conversion,
+// we probably need to come up with new coefficients if we ever move to native
+// sRGB framebuffers so we don't double-correct output
+//=============================================================================
+vec3 hableFilm(vec3 x) {
+    float a = 6.2;
+    float b = 0.5;
+    float c = 6.2;
+    float d = 1.7;
+    float e = 0.06;
+    return x*(a*x+b)/(x*(c*x+d)+e);
+}
+
+//=============================================================================
+//
+// hableFilm()
+//
+// ACES standard photographic stock tone curve.
+//=============================================================================
+vec3 acesFilm(vec3 x) {
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return x*(a*x+b)/(x*(c*x+d)+e);
+}
+
+void main(void) {
+	vec4  baseColor = texture0Bound != 0 ? asLinear(texture2D(texUnit0, vTc.xy)) : vec4(1.0);
+	vec3  normal    = buildTSB() * (texture2D(texUnit1, vTc.xy).rgb * (255.0/127.0) - (128.0/127.0));
+	vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
+	float opacity   = baseColor.a * vColorOut.a * materialFrontDiffuse.a;
+#if ROUGHNESS_MAP == 1
+	specular.a = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, 1.0 - specular.g));
+#else
+    specular.a = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, specular.a));
+#endif
+    computeLighting(normal, vPosOut.xyz, asRoughness(specular.a));
+
+    vec3 color = materialFrontEmissive.rgb +
+    			 baseColor.rgb * (frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
+    			 Specular * specular.rgb;
+#if GLOW_MAP == 1
+    //Glow.
+    color.rgb = mix(color.rgb, vec3(1.0), specular.b);
+#endif
+
+    if (fogEnabled != 0) {
+    	color.rgb = mix(color.rgb, fogColor.rgb, saturate(fFogFragCoord));
+    }
+
+	// Fake over-exposure for pseudo-HDR.
+	gl_FragColor = vec4(hableFilm(color), opacity);
+}

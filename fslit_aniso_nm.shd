@@ -1,23 +1,27 @@
-const int MAX_LIGHTS=8;
-const float NO_ATTENUATION=0.0;
+/*
 
-vec3 Ambient;
-vec3 Diffuse;
-vec3 Specular;
+fslit_aniso_nm.shd
+
+*/
+#define saturate(val) clamp((val), 0.0, 1.0)
+
+const int   MAX_LIGHTS     = 8;
+const float NO_ATTENUATION = 0.0;
 
 uniform sampler2D texUnit0;	// decal
 uniform sampler2D texUnit1;	// normal map
 uniform sampler2D texUnit2;	// specular map
+
 uniform lowp    vec4 fogColor;
 uniform         int fogEnabled;
 uniform         int texture0Bound;
 
-uniform lowp	vec4 lightAmbient			[MAX_LIGHTS];
-uniform lowp	vec4 lightDiffuse			[MAX_LIGHTS];
-uniform lowp	vec4 lightSpecular			[MAX_LIGHTS];
-uniform mediump	vec4 lightPosition			[MAX_LIGHTS];
-uniform mediump float lightQuadraticAtten	[MAX_LIGHTS];
-uniform         int numLights;
+uniform lowp	vec4  lightAmbient[MAX_LIGHTS];
+uniform lowp	vec4  lightDiffuse[MAX_LIGHTS];
+uniform lowp	vec4  lightSpecular[MAX_LIGHTS];
+uniform mediump	vec4  lightPosition[MAX_LIGHTS];
+uniform mediump float lightQuadraticAtten[MAX_LIGHTS];
+uniform         int   numLights;
 
 uniform mediump	vec4  materialFrontAmbient;
 uniform mediump	vec4  materialFrontDiffuse;
@@ -28,20 +32,25 @@ uniform lowp    vec4  frontLightModelProductSceneColor;
 uniform float diffuseWrap;
 uniform float anisotropy;
 
-varying      vec4 vPosOut; // This will be in camera space.
-varying      vec2 vTc;
-varying lowp vec4 vColorOut;
+varying      vec4  vPosOut; // This will be in camera space.
+varying      vec2  vTc;
+varying lowp vec4  vColorOut;
+varying      vec3  vStaticLightDirOut;
 
-// Our tangent space basis in camera space.  It has been interpolated, so normalization will be required. 
-varying      vec3 vTangentOut;
-varying      vec3 vNormalOut;
+varying      vec3  vTangentOut; // Our tangent space basis in camera space.  It has been interpolated, so normalization will be required. 
+varying      vec3  vNormalOut;
 varying      float fTextureHandedness; // Just the handedness attribute passed from the vertex shader. It should always be the same for all vertices of a face so interpolation will not be an issue.
 
-varying      vec3 vStaticLightDirOut;
 varying      float fFogFragCoord;
 
-struct Surface
-{
+vec3 Ambient;
+vec3 Diffuse;
+vec3 Specular;
+
+const float fShininessMax = 18.0;
+const float fShininessMin = 1.0;
+
+struct Surface {
 	vec3  normal;
 	vec3  bitangent;
 	vec3  tangent;
@@ -52,207 +61,143 @@ struct Surface
 
 struct Light {
 	vec3  direction;
-	vec3  halfVector;
 	vec3  ambient;
 	vec3  diffuse;
 	vec3  specular;
 	float attenuationCoefficient;
 };
 
-float wrapDiffuse(in float nDotL, in float wrapFactor)
-{
+float wrapDiffuse(in float nDotL, in float wrapFactor) {
 	float wrapCoefficient = (1.0 + wrapFactor);
-	return pow(clamp(nDotL + wrapFactor, 0.0, 1.0) / wrapCoefficient, wrapCoefficient);
+	return pow(saturate(nDotL + wrapFactor) / wrapCoefficient, wrapCoefficient);
 }
 
-float pow4(in float value)
-{
-	// 2 MUL, generally better GPU scheduling than pow(x, 4.0f) since no transcendentals
-	value *= value;
-	return value * value;
-}
-
-float getToksvigPower(in vec3 bump, in float power)
-{
-    float rlen = 1.0 / clamp(length(bump), 1e-5, 1.0);
-    return power / (power * (rlen - 1.0) + 1.0);
-}
-
-float remapGGX(inout vec3 bump)
-{
+float remapGGX(inout vec3 bump) {
 	float len = length(bump);
-	// [Chan 2018, Material Advances in Call of Duty: WWII] rational function fit for GGX gloss table.
-	// This is in Horner form to take advantage of fused multiply-adds where available.
+	/* [Chan 2018, Material Advances in Call of Duty: WWII] rational function fit for GGX gloss table.
+	 * This is in Horner form to take advantage of fused multiply-adds where available. */
 	float numerator = len * ((len * (len * 0.56 + 7.42)) + 0.094) + 0.667;
 	float denominator = 1.0 - len * (len * 8.84 + 1.09);
 	return numerator / denominator;
 }
 
-vec3 asLinear(in vec3 color)
-{
+vec3 asLinear(in vec3 color) {
 	return pow(color, vec3(2.2));
 }
 
-vec3 asGamma(in vec3 color)
-{
+vec4 asLinear(in vec4 color) {
+	return vec4(asLinear(color.rgb), color.a);
+}
+
+vec3 asGamma(in vec3 color) {
 	return pow(color, vec3(1.0/2.2));
 }
 
-float asRoughness(in float s)
-{
+vec4 asGamma(in vec4 color) {
+	return vec4(asGamma(color.rgb), color.a);
+}
+
+float asRoughness(in float specAlpha) {
+	/* HACK: We're converting to a Blinn-Phong exponent and then immediately transitioning to a Beckmann roughness value.
+	 * It makes much more sense to move directly from the alpha value directly to roughness coefficient, possibly
+	 * using a polynomial/rational function approximation for this conversion. */
+	float s = mix(fShininessMin, fShininessMax, specAlpha);
     return clamp(pow(2.0 / (s + 2.0), 0.25), 1e-5, 1.0);
-}
-
-float asExponent(in float specAlpha) {
-	return mix(8.0, 80.0, specAlpha);
-}
-
-float getSmithVisibility(in float nDotE, in float nDotL, in float alpha)
-{
-	float smithE = nDotE + sqrt(nDotE * (nDotE - nDotE * alpha) + alpha);
-	float smithL = nDotL + sqrt(nDotL * (nDotL - nDotL * alpha) + alpha);
-	return 1.0 / (smithE * smithL);
-}
-
-float getSmithVisibility(in float tDotE, in float bDotE, in float nDotE, in float tDotL, in float bDotL, in float nDotL, in float alphaT, in float alphaB)
-{
-	float smithE = nDotL * length(vec3(alphaT * tDotE, alphaB * bDotE, nDotE));
-	float smithL = nDotE * length(vec3(alphaT * tDotL, alphaB * bDotL, nDotL));
-	return 0.5 / max(smithE + smithL, 1e-5);
 }
 
 vec3 shiftTangent(in vec3 tangent, in vec3 normal, in float amount) {
 	return normalize(tangent + normal * amount);
 }
 
-// Normalized anisotropic GGX/Trowbridge-Reitz, [McAuley 2015] simplification
-float getGGX(in float tDotH, in float bDotH, in float nDotH, in float alphaT, in float alphaB)
-{
+float getSmithVisibility(in float tDotE, in float bDotE, in float nDotE, in float tDotL, in float bDotL, in float nDotL, in float alphaT, in float alphaB) {
+	float smithE = nDotL * length(vec3(alphaT * tDotE, alphaB * bDotE, nDotE));
+	float smithL = nDotE * length(vec3(alphaT * tDotL, alphaB * bDotL, nDotL));
+	return 0.5 / max(smithE + smithL, 1e-5);
+}
+
+// Normalized anisotropic GGX/Trowbridge-Reitz, using [McAuley 2015] simplification
+float getGGX(in float tDotH, in float bDotH, in float nDotH, in float alphaT, in float alphaB) {
 	float a2 = alphaT * alphaB;
-	vec3 v   = vec3(alphaT * bDotH, alphaB * tDotH, a2 * nDotH);
+	vec3  v  = vec3(alphaT * bDotH, alphaB * tDotH, a2 * nDotH);
 	float d  = a2 / dot(v, v);
 	return (1.0 / 3.14159265358979323846) * a2 * d * d;
 }
 
-// Normalized isotropic GGX/Trowbridge-Reitz
-float getGGX(in float nDotH, in float alpha)
-{
-	float d = (nDotH * alpha - nDotH) * nDotH + 1.0;
-	return alpha / (3.14159265358979323846 * d * d);
-}
+void getContribution(in Surface surface, in Light light) {
+	vec3  toLight     = normalize(light.direction);
+	vec3  halfVector  = normalize(surface.toEye + toLight);
+	float attenuation = 1.0 / (light.attenuationCoefficient * dot(light.direction, light.direction) + 1.0);
+	float tDotH       = dot(surface.tangent, halfVector);
+	float bDotH       = dot(surface.bitangent, halfVector);
+	float nDotH       = dot(surface.normal, halfVector);
+	float tDotE       = dot(surface.tangent, surface.toEye);
+	float bDotE       = dot(surface.bitangent, surface.toEye);
+	float nDotE       = dot(surface.normal, surface.toEye);
+	float tDotL       = dot(surface.tangent, toLight);
+	float bDotL       = dot(surface.bitangent, toLight);
+	float nDotL       = dot(surface.normal, toLight);
 
-float getBrdf(in Surface surface, in Light light)
-{
-	float tDotH = dot(surface.tangent, light.halfVector);
-	float bDotH = dot(surface.bitangent, light.halfVector);
-	float nDotH = dot(surface.normal, light.halfVector);
-	float tDotE = dot(surface.tangent, surface.toEye);
-	float bDotE = dot(surface.bitangent, surface.toEye);
-	float nDotE = dot(surface.normal, surface.toEye);
-	float tDotL = dot(surface.tangent, light.direction);
-	float bDotL = dot(surface.bitangent, light.direction);
-	float nDotL = dot(surface.normal, light.direction);
-
+	// Anisotropic GGX BRDF terms
 	float d = getGGX(tDotH, bDotH, nDotH, surface.alphaT, surface.alphaB);
 	float g = getSmithVisibility(tDotE, bDotE, nDotE, tDotL, bDotL, nDotL, surface.alphaT, surface.alphaB);
 
-	return d * g;
-}
-
-void getContribution(in Surface surface, in Light light) {
-	float attenuation = 1.0 / (light.attenuationCoefficient * dot(light.direction, light.direction) + 1.0);
-	vec3  toLight     = normalize(light.direction);
-	float tDotL       = dot(anisotropy >= 0.0 ? surface.bitangent : surface.tangent, toLight);
-	float nDotL       = wrapDiffuse(dot(surface.normal, toLight), diffuseWrap);
-	float diff        = sqrt(1.0 - tDotL * tDotL);
-
 	Ambient  += attenuation * light.ambient;
-	Diffuse  += attenuation * nDotL * diff * light.diffuse;
-	Specular += attenuation * nDotL * getBrdf(surface, light) * light.specular;
+	// [Kajiya, Kay, et al. 1989] BRDF diffuse term is sin(theta), which we derive from trig identities.
+	Diffuse  += attenuation * sqrt(1.0 - tDotL * tDotL) * light.diffuse;
+	Specular += attenuation * saturate(nDotL * 4.0) * (d * g) * light.specular;
 }
 
 //=============================================================================
 //
-// flight()
+// computeLighting()
 //
 // Calculates lighting contribution all lights.
 //
 //=============================================================================
-void flight(in vec3 tangent, in vec3 bitangent, in vec3 normal, in vec3 ecPosition, in float roughness)
-{
+void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
+	vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
+	Surface surface = Surface(normal, toEye, /*alphaT =*/roughness * (1.0 + anisotropy), /*alphaB =*/roughness * (1.0 - anisotropy));
+
 	// Clear the light intensity accumulators
-	Ambient  = frontLightModelProductSceneColor.rgb + materialFrontEmissive.rgb;
+	Ambient  = vec3(0.0);
 	Diffuse  = vec3(0.0);
 	Specular = vec3(0.0);
 
-	vec3 toEye = normalize(-ecPosition);
-	vec3 grainDir = anisotropy >= 0.0 ? bitangent : tangent;
-
-	bitangent = normalize(cross(grainDir, toEye));
-	tangent = cross(bitangent, grainDir);
-
-	Surface surface = Surface(
-	/*tangent   =*/tangent,
-	/*bitangent =*/bitangent,
-	/*normal    =*/normal,
-	/*toEye     =*/toEye, // Eye-space position, just need to normalize.
-	/*alphaT    =*/roughness * (1.0 + anisotropy),
-	/*alphaB    =*/roughness * (1.0 - anisotropy)
-	);
-
-	if (length(vStaticLightDirOut) > 0.0)
-	{
-		getContribution(
-			surface,
-			Light(
-			/*direction =*/vStaticLightDirOut.xyz,
-			/*halfVector =*/normalize(surface.toEye + normalize(vStaticLightDirOut.xyz)),
-			/*ambient =*/vec3(0.0),
-			/*diffuse =*/vColorOut.rgb,
-			/*specular =*/vColorOut.rgb,
-			/*attenuationCoefficient =*/NO_ATTENUATION));
-	}
-	else
-	{
+	if (dot(vStaticLightDirOut, vStaticLightDirOut) > 0.0) {
+		getContribution(surface, Light(vStaticLightDirOut.xyz /*ambient =*/vec3(0.0), /*diffuse =*/vColorOut.rgb, /*specular =*/vColorOut.rgb, NO_ATTENUATION));
+	} else {
 		Ambient = vColorOut.rgb;
 	}
 
-	for(int light = 0; light < numLights; light++)  
-	{
-		vec3 toLight = lightPosition[light].xyz - ecPosition;
-		getContribution(
-			surface,
-			Light(
-			/*direction =*/toLight,
-			/*halfVector =*/normalize(surface.toEye + normalize(toLight)),
-			/*ambient =*/lightAmbient[light].rgb,
-			/*diffuse =*/lightDiffuse[light].rgb,
-			/*specular =*/lightSpecular[light].rgb,
-			/*attenuationCoefficient =*/lightQuadraticAtten[light]));
+	for (int light = 0; light < numLights; light++) {
+		getContribution(surface, Light(/*direction =*/lightPosition[light].xyz - position, lightAmbient[light].rgb, lightDiffuse[light].rgb, lightSpecular[light].rgb, lightQuadraticAtten[light]));
 	}
 }
 
 //=============================================================================
 //
-// BuildTSB()
+// buildTSB()
 //
 // Construct our tangent-space basis matrix from the input data
 //
 //=============================================================================
-mat3 BuildTSB()
-{
-    // Construct our tangent-space basis matrix from the input data.
-    vec3 vNormal = normalize(vNormalOut);
-    vec3 vTangent = vTangentOut;
+mat3 buildTSB() {
+    vec3 vNormal  = normalize(vNormalOut);
     // Gram-Schmidt orthogonalization.
-    vTangent = normalize(vTangent - vNormal * dot(vTangent, vNormal));
-    vec3 vBitangent = cross(vNormal, vTangent) * fTextureHandedness;
+    vec3 vTangent = normalize(vTangentOut - vNormal * dot(vTangentOut, vNormal));
     
-    return mat3(vTangent, vBitangent, vNormal);
+    return mat3(vTangent, cross(vNormal, vTangent) * fTextureHandedness, vNormal);
 }
 
-vec3 HableFilm(vec3 x)
-{
+//=============================================================================
+//
+// hableFilm()
+//
+// John Hable/'Uncharted 2' tone curve. Includes gamma 2.2 conversion,
+// we probably need to come up with new coefficients if we ever move to native
+// sRGB framebuffers so we don't double-correct output
+//=============================================================================
+vec3 hableFilm(vec3 x) {
     float a = 6.2;
     float b = 0.5;
     float c = 6.2;
@@ -261,8 +206,13 @@ vec3 HableFilm(vec3 x)
     return x*(a*x+b)/(x*(c*x+d)+e);
 }
 
-vec3 ACESFilm(vec3 x)
-{
+//=============================================================================
+//
+// hableFilm()
+//
+// ACES standard photographic stock tone curve.
+//=============================================================================
+vec3 acesFilm(vec3 x) {
     float a = 2.51;
     float b = 0.03;
     float c = 2.43;
@@ -271,28 +221,23 @@ vec3 ACESFilm(vec3 x)
     return x*(a*x+b)/(x*(c*x+d)+e);
 }
 
-void main (void)
-{
-	mat3  mTSB     = BuildTSB();
-	vec3  normal   = texture2D(texUnit1, vTc.xy).rgb * (255.0/127.0) - (128.0/127.0);
-	normal         = mTSB * normal;
-	vec4  specular = texture2D(texUnit2, vTc.xy);
-	float opacity  = materialFrontDiffuse.a;
-	float power    = asExponent(specular.a);
+void main (void) {
+	vec3  baseColor = (texture0Bound != 0) ? asLinear(texture2D(texUnit0, vTc.xy).rgb) : vec3(1.0);
+	mat3  mTSB      = buildTSB();
+	vec3  normal    = normalize(mTSB * (texture2D(texUnit1, vTc.xy).rgb * (255.0/127.0) - (128.0/127.0)));
+	vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
+	float opacity   = vColorOut.a * materialFrontDiffuse.a;
 
-	flight(normalize(mTSB[0]), normalize(mTSB[1]), normal, vPosOut.xyz, asRoughness(power));
-	// Diffuse texture lives in unit 0.
-	vec4 baseColor = (texture0Bound != 0) ? texture2D(texUnit0, vTc.xy) : vec4(1.0);
-	baseColor.rgb  = asLinear(baseColor.rgb);
-	Ambient  *= baseColor.rgb;
-	Diffuse  *= baseColor.rgb;
-	// opacity  *= baseColor.a;
+	computeLighting(/*tangent =*/mTSB[0], /*bitangent =*/mTSB[1], normal, vPosOut.xyz, asRoughness(specular.a));
 
-	vec3 color = Ambient * materialFrontAmbient.rgb +
-				Diffuse  * materialFrontDiffuse.rgb + 
-				Specular * asLinear(specular.rgb);
+	vec3 color = materialFrontEmissive.rgb +
+    			 baseColor * (frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
+    			 Specular * specular.rgb;
 
-	if(fogEnabled != 0) color.rgb = mix(color.rgb, fogColor.rgb, clamp(fFogFragCoord, 0.0, 1.0));
+	if (fogEnabled != 0) {
+		color.rgb = mix(color.rgb, fogColor.rgb, saturate(fFogFragCoord));
+	}
 
-	gl_FragColor = vec4(HableFilm(color * 1.7), opacity);
+	// Fake over-exposure for pseudo-HDR.
+	gl_FragColor = vec4(hableFilm(color * 1.7), opacity);
 }
