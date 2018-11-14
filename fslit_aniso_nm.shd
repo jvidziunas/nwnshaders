@@ -4,6 +4,8 @@ fslit_aniso_nm.shd
 
 */
 #define PI 3.14159265359
+// Set to one to use a tonemapping operator and fake scene exposure.
+#define PSEUDO_HDR 1
 #define saturate(val) clamp((val), 0.0, 1.0)
 
 const int   MAX_LIGHTS     = 8;
@@ -22,7 +24,6 @@ uniform         int texture0Bound;
 
 uniform lowp	vec4  lightAmbient[MAX_LIGHTS];
 uniform lowp	vec4  lightDiffuse[MAX_LIGHTS];
-uniform lowp	vec4  lightSpecular[MAX_LIGHTS];
 uniform mediump	vec4  lightPosition[MAX_LIGHTS];
 uniform mediump float lightQuadraticAtten[MAX_LIGHTS];
 uniform         int   numLights;
@@ -63,8 +64,7 @@ struct Surface {
 struct Light {
 	vec3  direction;
 	vec3  ambient;
-	vec3  diffuse;
-	vec3  specular;
+	vec3  color;
 	float attenuationCoefficient;
 };
 
@@ -110,14 +110,30 @@ vec3 shiftTangent(in vec3 tangent, in vec3 normal, in float amount) {
 	return normalize(tangent + normal * amount);
 }
 
+//=============================================================================
+//
+// getSmithVisibility()
+//
+// Estimates the fraction of surface microfacets not occluded by other
+// (implicit/analytic) surface microfacets along the given light and eye
+// directions.
+//
+//=============================================================================
 float getSmithVisibility(in float tDotE, in float bDotE, in float nDotE, in float tDotL, in float bDotL, in float nDotL, in float alphaT, in float alphaB) {
 	float smithE = nDotL * length(vec3(alphaT * tDotE, alphaB * bDotE, nDotE));
 	float smithL = nDotE * length(vec3(alphaT * tDotL, alphaB * bDotL, nDotL));
 	return 0.5 / max(smithE + smithL, 1e-5);
 }
 
-// Normalized anisotropic GGX/Trowbridge-Reitz, using [McAuley 2015] simplification
-float getGGX(in float tDotH, in float bDotH, in float nDotH, in float alphaT, in float alphaB) {
+//=============================================================================
+//
+// getGgx()
+//
+// Estimates the fraction of surface microfacets oriented to reflect light
+// along the eye direction, using [McAuley 2015] simplification.
+//
+//=============================================================================
+float getGgx(in float tDotH, in float bDotH, in float nDotH, in float alphaT, in float alphaB) {
 	float a2 = alphaT * alphaB;
 	vec3  v  = vec3(alphaT * bDotH, alphaB * tDotH, a2 * nDotH);
 	float d  = a2 / dot(v, v);
@@ -139,13 +155,14 @@ void getContribution(in Surface surface, in Light light) {
 	float nDotL       = dot(surface.normal, toLight);
 
 	// Anisotropic GGX BRDF terms
-	float d = getGGX(tDotH, bDotH, nDotH, surface.alphaT, surface.alphaB);
-	float g = getSmithVisibility(tDotE, bDotE, nDotE, tDotL, bDotL, nDotL, surface.alphaT, surface.alphaB);
+	float d     = getGgx(tDotH, bDotH, nDotH, surface.alphaT, surface.alphaB);
+	float g     = getSmithVisibility(tDotE, bDotE, nDotE, tDotL, bDotL, nDotL, surface.alphaT, surface.alphaB);
+	vec3  color = attenuation * light.color;
 
 	Ambient  += attenuation * light.ambient;
 	// [Kajiya, Kay, et al. 1989] BRDF diffuse term is sin(theta), which we derive from trig identities.
-	Diffuse  += attenuation * sqrt(1.0 - tDotL * tDotL) * light.diffuse;
-	Specular += attenuation * saturate(nDotL * 3.0) * (d * g) * light.specular;
+	Diffuse  += sqrt(1.0 - tDotL * tDotL) * color;
+	Specular += saturate(nDotL * 3.0) * (d * g) * color;
 }
 
 //=============================================================================
@@ -155,9 +172,9 @@ void getContribution(in Surface surface, in Light light) {
 // Calculates lighting contribution for all lights.
 //
 //=============================================================================
-void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
+void computeLighting(in vec3 tangent, in vec3 bitangent, in vec3 normal, in vec3 position, in float roughness) {
 	vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
-	Surface surface = Surface(normal, toEye, /*alphaT =*/roughness * (1.0 + anisotropy), /*alphaB =*/roughness * (1.0 - anisotropy));
+	Surface surface = Surface(tangent, bitangent, normal, toEye, /*alphaT =*/roughness * (1.0 + anisotropy), /*alphaB =*/roughness * (1.0 - anisotropy));
 
 	// Clear the light intensity accumulators
 	Ambient  = vec3(0.0);
@@ -165,13 +182,13 @@ void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
 	Specular = vec3(0.0);
 
 	if (dot(vStaticLightDirOut, vStaticLightDirOut) > 0.0) {
-		getContribution(surface, Light(vStaticLightDirOut.xyz /*ambient =*/vec3(0.0), /*diffuse =*/vColorOut.rgb, /*specular =*/vColorOut.rgb, NO_ATTENUATION));
+		getContribution(surface, Light(vStaticLightDirOut.xyz, /*ambient =*/vec3(0.0), /*diffuse =*/vColorOut.rgb, NO_ATTENUATION));
 	} else {
 		Ambient = vColorOut.rgb;
 	}
 
 	for (int light = 0; light < numLights; light++) {
-		getContribution(surface, Light(/*direction =*/lightPosition[light].xyz - position, lightAmbient[light].rgb, lightDiffuse[light].rgb, lightSpecular[light].rgb, lightQuadraticAtten[light]));
+		getContribution(surface, Light(/*direction =*/lightPosition[light].xyz - position, lightAmbient[light].rgb, lightDiffuse[light].rgb, lightQuadraticAtten[light]));
 	}
 }
 
@@ -239,6 +256,10 @@ void main (void) {
 		color.rgb = mix(color.rgb, fogColor.rgb, saturate(fFogFragCoord));
 	}
 
-	// Fake over-exposure for pseudo-HDR.
+#if PSEUDO_HDR
 	gl_FragColor = vec4(hableFilm(color * fHdrExposure), opacity);
+#else
+	// Gamma correct before blending/raster out.
+	gl_FragColor = vec4(asGamma(color), opacity);
+#endif
 }

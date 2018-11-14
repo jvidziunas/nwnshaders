@@ -8,6 +8,8 @@ fslit_sm_nm.shd
 #define ROUGHNESS_MAP 0
 // Set to one to read roughness from specular map blue channel.
 #define GLOW_MAP 0
+// Set to one to use a tonemapping operator and fake scene exposure.
+#define PSEUDO_HDR 1
 #define saturate(val) clamp((val), 0.0, 1.0)
 
 const int   MAX_LIGHTS               = 8;
@@ -33,7 +35,6 @@ uniform highp mat3 m_normal;
 
 uniform lowp    vec4  lightAmbient[MAX_LIGHTS];
 uniform lowp    vec4  lightDiffuse[MAX_LIGHTS];
-uniform lowp    vec4  lightSpecular[MAX_LIGHTS];
 uniform mediump vec4  lightPosition[MAX_LIGHTS];
 uniform mediump float lightQuadraticAtten[MAX_LIGHTS];
 uniform         int   numLights;
@@ -69,11 +70,19 @@ struct Surface {
 struct Light {
     vec3  direction;
     vec3  ambient;
-    vec3  diffuse;
-    vec3  specular;
+    vec3  color;
     float attenuationCoefficient;
 };
 
+//=============================================================================
+//
+// getToksvigExponent()
+//
+// Adjusts a Blinn-Phong specular exponent according to normal map variations
+// to eliminate highlight shimmering. `bump` should not be normalized, though
+// the function does return a meaningful result in this case.
+//
+//=============================================================================
 float getToksvigExponent(inout vec3 bump, in float exponent) {
     float len = length(bump);
     // Sneak a normalize in here since it's useful.
@@ -107,14 +116,30 @@ vec4 asGamma(in vec4 color) {
     return vec4(asGamma(color.rgb), color.a);
 }
 
+//=============================================================================
+//
+// getSmithVisibility()
+//
+// Estimates the fraction of surface microfacets not occluded by other
+// (implicit/analytic) surface microfacets along the given light and eye
+// directions.
+//
+//=============================================================================
 float getSmithVisibility(in float nDotE, in float nDotL, in float alpha) {
     float smithE = nDotE + sqrt(nDotE * (nDotE - nDotE * alpha) + alpha);
     float smithL = nDotL + sqrt(nDotL * (nDotL - nDotL * alpha) + alpha);
     return 1.0 / (smithE * smithL);
 }
 
-// Normalized isotropic GGX/Trowbridge-Reitz
-float getGGX(in float nDotH, in float alpha) {
+//=============================================================================
+//
+// getGgx()
+//
+// Estimates the fraction of surface microfacets oriented to reflect light
+// along the eye direction.
+//
+//=============================================================================
+float getGgx(in float nDotH, in float alpha) {
     float d = (nDotH * alpha - nDotH) * nDotH + 1.0;
     return alpha / (3.14159265358979323846 * d * d);
 }
@@ -124,13 +149,13 @@ void getContribution(in Surface surface, in Light light) {
     vec3  halfVector  = normalize(surface.toEye + toLight);
     float attenuation = 1.0 / (light.attenuationCoefficient * dot(light.direction, light.direction) + 1.0);
     float nDotL       = dot(surface.normal, toLight);
-
-    float d = getGGX(dot(surface.normal, halfVector), surface.alpha);
-    float g = getSmithVisibility(dot(surface.normal, surface.toEye), nDotL, surface.alpha);
+    float d           = getGgx(dot(surface.normal, halfVector), surface.alpha);
+    float g           = getSmithVisibility(dot(surface.normal, surface.toEye), nDotL, surface.alpha);
+    vec3  color       = attenuation * light.color;
 
     Ambient  += attenuation * light.ambient;
-    Diffuse  += attenuation * saturate(nDotL) * light.diffuse;
-    Specular += attenuation * saturate(nDotL * 3.0) * (d * g) * light.specular;
+    Diffuse  += saturate(nDotL) * color;
+    Specular += saturate(nDotL * 3.0) * (d * g) * color;
 }
 
 //=============================================================================
@@ -150,13 +175,13 @@ void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
     Specular = vec3(0.0);
 
     if (dot(vStaticLightDirOut, vStaticLightDirOut) > 0.0) {
-        getContribution(surface, Light(vStaticLightDirOut.xyz, /*ambient =*/vec3(0.0), /*diffuse =*/vColorOut.rgb, /*specular =*/vColorOut.rgb, /*attenuationCoefficient =*/NO_ATTENUATION));
+        getContribution(surface, Light(vStaticLightDirOut.xyz, /*ambient =*/vec3(0.0), /*color =*/vColorOut.rgb, NO_ATTENUATION));
     } else {
         Ambient = vColorOut.rgb;
     }
 
     for (int light = 0; light < numLights; light++) {
-        getContribution(surface, Light(/*direction =*/lightPosition[light].xyz - position, lightAmbient[light].rgb, lightDiffuse[light].rgb, lightSpecular[light].rgb, lightQuadraticAtten[light]));
+        getContribution(surface, Light(/*direction =*/lightPosition[light].xyz - position, lightAmbient[light].rgb, lightDiffuse[light].rgb, lightQuadraticAtten[light]));
     }
 }
 
@@ -207,13 +232,13 @@ vec3 acesFilm(vec3 x) {
     return x*(a*x+b)/(x*(c*x+d)+e);
 }
 
-vec4 getEnvironmentMap(in vec3 toSurface, in vec3 normal) {
-    // Sphere mapping coord
-    vec3 vEnvReflect = reflect(toSurface, normal);
-    vEnvReflect.z += 1.0;
-    float fOffset = inversesqrt(dot(vEnvReflect, vEnvReflect));
+vec2 spheremapTransform(in vec3 direction) {
+    direction.z += 1.0;
+    return direction.xy * inversesqrt(dot(direction, direction)) * 0.5 + 0.5;
+}
 
-    return asLinear(texture2D(texUnitEnv, 0.5 * vEnvReflect.xy * fOffset + 0.5));
+vec4 getEnvironmentMap(in vec3 toSurface, in vec3 normal) {
+    return asLinear(texture2D(texUnitEnv, spheremapTransform(reflect(toSurface, normal))));
 }
 
 void main(void) {
@@ -237,7 +262,7 @@ void main(void) {
                  specular.rgb * (Specular + getEnvironmentMap(normalize(vPosOut.xyz), normal).rgb);
 
 #if GLOW_MAP == 1
-    //Glow.
+    // Glow.
     color = mix(color, vec3(1.0), specular.b);
 #endif
 
@@ -245,6 +270,10 @@ void main(void) {
         color = mix(color, fogColor.rgb, saturate(fFogFragCoord));
     }
 
-    // Fake over-exposure for HDR.
+#if PSEUDO_HDR
     gl_FragColor = vec4(hableFilm(color * fHdrExposure), opacity);
+#else
+    // Gamma correct before blending/raster out.
+    gl_FragColor = vec4(asGamma(color), opacity);
+#endif
 }
