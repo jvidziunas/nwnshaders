@@ -1,0 +1,39 @@
+/*
+
+fslit.shd
+
+*/
+#include "common"
+#include "noise"
+#include "sdf"
+
+uniform sampler2D   texUnit0; // base map
+
+uniform       int   texture0Bound;
+
+uniform lowp  vec4  fogColor;
+
+uniform       int   keyholeCanDissolve;
+uniform       vec3  playerPosition;
+uniform       vec3  cameraPosition;
+
+varying       vec4  vPosOut;
+varying highp vec3  vWorldCoord;
+varying       vec2  vTc;
+varying       vec4  vColorOut;
+varying       float fFogFragCoord;
+varying       float fKeyholeDistance;
+
+void main (void) {
+    // Isolate this conditional in hopes that the driver will use dynamic branching.
+    if (keyholeCanDissolve != 0) {
+        if ((keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + 0.2 * gradientNoise(vPosOut.xyz * 8.0)) < 0.0) {
+            discard;
+        }
+    }
+
+	vec4 color = (texture0Bound != 0) ? asLinear(texture2D(texUnit0, vTc.xy)) : vec4(1.0);
+    color *= vColorOut;
+	
+	gl_FragColor = tonemapOutput(mix(color.rgb, fogColor.rgb, saturate(fFogFragCoord)), color.a);
+}

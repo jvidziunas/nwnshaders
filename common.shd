@@ -1,0 +1,146 @@
+/*
+
+common.shd
+
+*/
+#ifndef COMMON_SHD
+#define COMMON_SHD
+
+#ifndef USE_GAMMA_CORRECTION
+#define USE_GAMMA_CORRECTION 1
+#endif
+
+// Set to one to use a tonemapping operator and fake scene exposure.
+#ifndef USE_PSEUDO_HDR
+#define USE_PSEUDO_HDR 0
+#endif
+
+#define unpackNormal(val) ((val) * (255.0/127.0) - (128.0/127.0))
+#define saturate(val) clamp((val), 0.0, 1.0)
+#define PI 3.14159265359
+
+const float fHdrExposure   = 1.7;
+
+vec2 spheremapTransform(in vec3 direction) {
+    direction.z += 1.0;
+    return direction.xy * inversesqrt(dot(direction, direction)) * 0.5 + 0.5;
+}
+
+float ffog(in float depth, in float startDepth, in float endDepth) {
+    // Make sure to not to clamp this in the vertex stage as we need to be able to get within boundaries through interpolation.
+    // Taking absolute value of distance is important for some GUI elements.
+    return (abs(depth) - startDepth) / (endDepth - startDepth);
+}
+
+float getCurvature(in vec3 normal, in vec3 position, in float scale) {
+    return saturate(length(fwidth(normal))) / (length(fwidth(position)) * scale);
+}
+
+bool anyNonzero(in vec3 values) {
+    return any(notEqual(values, vec3(0.0)));
+}
+
+vec3 asLinear(in vec3 color) {
+#if USE_GAMMA_CORRECTION
+    return pow(color, vec3(2.2));
+#else
+    return color;
+#endif
+}
+
+vec4 asLinear(in vec4 color) {
+#if USE_GAMMA_CORRECTION
+    return vec4(asLinear(color.rgb), color.a);
+#else
+    return color;
+#endif
+}
+
+vec3 asGamma(in vec3 color) {
+#if USE_GAMMA_CORRECTION
+    return pow(color, vec3(1.0/2.2));
+#else
+    return color;
+#endif
+}
+
+vec4 asGamma(in vec4 color) {
+#if USE_GAMMA_CORRECTION
+    return vec4(asGamma(color.rgb), color.a);
+#else
+    return color;
+#endif
+}
+
+float pow3(in float value) {
+    return value * value * value;
+}
+
+float pow4(in float value) {
+    float value2 = value * value;
+    return value2 * value2;
+}
+
+float pow5(in float value) {
+    return value * pow4(value);
+}
+
+//=============================================================================
+//
+// buildTSB()
+//
+// Construct a tangent-space rotation matrix from an interpolated vertex
+// normal, interpolated vertex tangent, and primitive handedness value.
+//
+//=============================================================================
+mat3 buildTSB(in vec3 normal, in vec3 tangent, in float handedness) {
+    vec3 vNormal  = normalize(normal);
+    // Gram-Schmidt orthogonalization.
+    vec3 vTangent = normalize(tangent - vNormal * dot(tangent, vNormal));
+    
+    return mat3(vTangent, cross(vNormal, vTangent) * handedness, vNormal);
+}
+
+//=============================================================================
+//
+// hableFilm()
+//
+// John Hable/'Uncharted 2' tone curve. Includes gamma 2.2 conversion,
+// we probably need to come up with new coefficients if we ever move to native
+// sRGB framebuffers so we don't double-correct output
+//=============================================================================
+vec3 hableFilm(vec3 x) {
+    float a = 6.2;
+    float b = 0.5;
+    float c = 6.2;
+    float d = 1.7;
+    float e = 0.06;
+    return x*(a*x+b)/(x*(c*x+d)+e);
+}
+
+//=============================================================================
+//
+// acesFilm()
+//
+// ACES standard photographic stock tone curve.
+//=============================================================================
+vec3 acesFilm(vec3 x) {
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return x*(a*x+b)/(x*(c*x+d)+e);
+}
+
+vec4 tonemapOutput(in vec3 hdrColor, in float opacity) {
+// TO CONSIDER: This might be better implemented as a 'switch' parameter that
+// takes one of several values based on user preferences.
+#if USE_PSEUDO_HDR
+    return vec4(hableFilm(hdrColor * fHdrExposure), opacity);
+#else
+    return vec4(asGamma(hdrColor), opacity);
+#endif
+}
+
+#endif // COMMON_SHD

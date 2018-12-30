@@ -1,0 +1,145 @@
+/*
+
+lit_common.shd
+
+*/
+#ifndef LIT_COMMON_SHD
+#define LIT_COMMON_SHD
+
+const float fShininessMax  = 80.0;
+const float fShininessMin  = 8.0;
+
+float asRoughness(in float specAlpha) {
+	return clamp(pow(2.0 / (specAlpha + 2.0), 0.25), 1e-5, 1.0);
+}
+
+float wrapDiffuse(in float nDotL, in float wrapFactor) {
+	float wrapCoefficient = (1.0 + wrapFactor);
+	return pow(saturate(nDotL + wrapFactor) / wrapCoefficient, wrapCoefficient);
+}
+
+vec3 shiftTangent(in vec3 tangent, in vec3 normal, in float amount) {
+	return normalize(tangent + normal * amount);
+}
+
+//=============================================================================
+//
+// getToksvigExponent()
+//
+// Adjusts a Blinn-Phong specular exponent according to normal map variations
+// to eliminate highlight shimmering. `bump` should not be normalized, though
+// the function does return a meaningful result in this case.
+//
+//=============================================================================
+float getToksvigExponent(inout vec3 bump, in float exponent) {
+    float len = length(bump);
+    // Sneak a normalize in here since it's useful.
+    bump /= len;
+
+    /* While the texture could in theory return an all-0 result, this is very unlikely under typical use.
+     * Since a saturate modifier will always be cheaper than an arithmetic clamp (or, in the worst case,
+     * exactly equal if H/W lacks a notion of said modifier) prefer the [0-1] range over biasing, even
+     * though this could result in divide-by-zero. */
+    float rlen = 1.0 / saturate(len);
+    return exponent / (exponent * (rlen - 1.0) + 1.0);
+}
+
+float remapGGX(inout vec3 bump) {
+    float len = length(bump);
+    /* [Chan 2018, Material Advances in Call of Duty: WWII] rational function fit for GGX gloss table.
+     * This is in Horner form to take advantage of fused multiply-adds where available. */
+    float numerator = len * ((len * (len * 0.56 + 7.42)) + 0.094) + 0.667;
+    float denominator = 1.0 - len * (len * 8.84 + 1.09);
+    return numerator / denominator;
+}
+
+//=============================================================================
+//
+// getSmithVisibility()
+//
+// Estimates the fraction of surface microfacets not occluded by other
+// (implicit/analytic) surface microfacets along the given light and eye
+// directions.
+//
+//=============================================================================
+float getSmithVisibility(in float nDotE, in float nDotL, in float alpha) {
+    float smithE = nDotE + sqrt(nDotE * (nDotE - nDotE * alpha) + alpha);
+    float smithL = nDotL + sqrt(nDotL * (nDotL - nDotL * alpha) + alpha);
+    return 1.0 / (smithE * smithL);
+}
+
+//=============================================================================
+//
+// getSmithVisibility()
+//
+// Estimates the fraction of surface microfacets not occluded by other
+// (implicit/analytic) surface microfacets along the given light and eye
+// directions.
+//
+//=============================================================================
+float getSmithVisibility(in float tDotE, in float bDotE, in float nDotE, in float tDotL, in float bDotL, in float nDotL, in float alphaT, in float alphaB) {
+	float smithE = nDotL * sqrt(alphaT * tDotE * tDotE + alphaB * bDotE * bDotE + nDotE * nDotE);
+	float smithL = nDotE * sqrt(alphaT * tDotL * tDotL + alphaB * bDotL * bDotL + nDotL * nDotL);
+	return 0.5 / max(smithE + smithL, 1e-5);
+}
+
+//=============================================================================
+//
+// getAshikhminVisibility()
+//
+// Estimates the fraction of surface microfacets not occluded by other
+// (implicit/analytic) surface microfacets along the given light and eye
+// directions.
+// [Ashikhmin, Premoze 2007, Distribution-based BRDFs]
+//
+//=============================================================================
+float getAshikhminVisibility(in float nDotE, in float nDotL) {
+    return 1.0 / max(4.0 * (nDotL + nDotE - nDotL * nDotE), 1e-4);
+}
+
+//=============================================================================
+//
+// getGgx()
+//
+// Estimates the fraction of surface microfacets oriented to reflect light
+// along the eye direction.
+//
+//=============================================================================
+float getGgx(in float nDotH, in float alpha) {
+    float d = (nDotH * alpha - nDotH) * nDotH + 1.0;
+    return alpha / (PI * d * d);
+}
+
+//=============================================================================
+//
+// getGgx()
+//
+// Estimates the fraction of surface microfacets oriented to reflect light
+// along the eye direction, using anisotropic parameterization defined in
+// [McAuley 2015]
+//
+//=============================================================================
+float getGgx(in float tDotH, in float bDotH, in float nDotH, in float alphaT, in float alphaB) {
+	float a2 = alphaT * alphaB;
+	vec3  v  = vec3(tDotH / alphaT, bDotH / alphaB, nDotH);
+	float d  = dot(v, v);
+	return 1.0 / (a2 * d * d);
+}
+
+//=============================================================================
+//
+// getCharlieD()
+//
+// Estimates the fraction of surface microfacets oriented to reflect light
+// along the eye direction, using parameterization defined in
+// [Estevez, Kulla 2017, Production Friendly Microfacet Sheen BRDF]
+//
+//=============================================================================
+float getCharlieD(in float nDotH, in float roughness) {
+    float rcpR  = 1.0 / roughness;
+    float cos2h = nDotH * nDotH;
+    float sin2h = 1.0 - cos2h;
+    return (2.0 + rcpR) * pow(sin2h, rcpR * 0.5) / (2.0 * PI);
+}
+
+#endif // LIT_COMMON_SHD

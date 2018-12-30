@@ -1,0 +1,31 @@
+/*
+
+fslit_sm.shd
+
+*/
+#include "common"
+#include "noise"
+
+uniform sampler2D texUnit0;
+uniform sampler2D texUnitEnv;	// This will contain the environment map
+
+uniform lowp  vec4  fogColor;
+
+varying highp vec4  vPosOut;
+varying highp vec3  vWorldCoord;
+varying       vec4  vColorOut;
+varying       vec2  vTc;
+varying       vec2  vTcEnv;
+varying       float fFogFragCoord;
+varying       float fKeyholeDistance;
+
+void main (void) {
+	if ((fKeyholeDistance + 0.2 * gradientNoise(vPosOut.xyz)) < 0.0) {
+        discard;
+    }
+
+	vec4 decal = asLinear(texture2D(texUnit0, vTc.xy));
+	vec3 color = vColorOut.rgb * mix(asLinear(texture2D(texUnitEnv, vTcEnv).rgb), decal.rgb, decal.a);
+
+	gl_FragColor = tonemapOutput(mix(color, fogColor.rgb, saturate(fFogFragCoord)), 1.0);
+}

@@ -1,0 +1,43 @@
+/*
+
+sdf.shd
+
+*/
+#ifndef SDF_SHD
+#define SDF_SHD
+
+float capsuleSdf(in vec3 origin, in vec3 end, in float radius, in vec3 point) {
+	vec3  toOrigin = point - origin;
+	vec3  axis     = end - origin;
+	float h        = clamp(dot(toOrigin, axis) / dot(axis, axis), 0.0, 1.0);
+	return length(toOrigin - axis * h) - radius;
+}
+
+// Faster variant of capsule SDF for case where one endpoint of the capsule is located at the origin.
+float fastCapsuleSdf(in vec3 end, in float radius, in vec3 point) {
+	float h = clamp(dot(point, end) / dot(end, end), 0.0, 1.0);
+	return length(point - end * h) - radius;
+}
+
+// Plane parameter must be normalized.
+float planeSdf(in vec4 plane, in vec3 point) {
+	return dot(point, plane.xyz) + plane.w;
+}
+
+float sdfUnion(in float sdf0, in float sdf1) {
+	return min(sdf0, sdf1);
+}
+
+float sdfSubtraction(in float sdf0, in float sdf1) {
+	return max(-sdf0, sdf1);
+}
+
+float sdfIntersection(in float sdf0, in float sdf1) {
+	return max(sdf0, sdf1);
+}
+
+float keyholeSdf(in vec3 playerPosition, in vec3 cameraPosition, in vec3 objectPosition) {
+	return sdfIntersection(capsuleSdf(playerPosition, cameraPosition, 1.35, objectPosition), playerPosition.z - objectPosition.z + 1.7);
+}
+
+#endif // SDF_SHD

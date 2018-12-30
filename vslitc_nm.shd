@@ -1,0 +1,63 @@
+/*
+
+vslitc_nm.shd
+
+*/
+#include "common"
+#include "sdf"
+
+#define WORLD_COORDS_MOD_LIMIT 35.0
+
+uniform highp   mat4   m_mvp;
+uniform highp   mat4   m_mv;
+uniform highp   mat3   m_normal;
+uniform highp   mat4   m_texture;
+uniform highp   mat4   m_m;
+
+uniform         int    fogEnabled;
+uniform mediump float  fogEnd;
+uniform mediump float  fogStart;
+
+uniform         int    keyholeCanDissolve;
+uniform         vec3   playerPosition;
+uniform         vec3   cameraPosition;
+
+attribute       vec4   vPos;
+attribute       vec2   vTcIn;
+attribute       vec4   vColor;
+attribute       vec3   vNormal;
+attribute       vec3   vTangent;
+attribute       float  fHandedness;
+attribute       vec3   vStaticLightDir;
+
+varying         vec4   vPosOut;
+varying highp   vec3   vWorldCoord;
+varying         vec2   vTc;
+varying         vec3   vNormalOut;
+varying         vec3   vTangentOut;
+varying         float  fTextureHandedness;
+varying         vec4   vColorOut;
+varying         vec3   vStaticLightDirOut;
+varying         float  fFogFragCoord;
+
+void main (void) {
+	gl_Position = m_mvp * vPos;
+	vPosOut     = m_mv  * vPos;
+	vWorldCoord = (m_m  * vPos).xyz;
+
+	vTc = (m_texture * vec4(vTcIn.x, vTcIn.y, 0.0, 1.0)).xy;
+	
+	mat4 mTangentRotation = (fHandedness > 0) ? transpose(m_texture) : m_texture;
+	vec3 vRotatedTangent  = (mTangentRotation * vec4(vTangent, 1.0)).xyz;
+	// Gram-Schmidt orthogonalization, since the texture matrix is a rotation around Z, but the normal may not be vertical
+	vRotatedTangent = vRotatedTangent - vNormal * dot(vRotatedTangent, vNormal);
+		
+	vNormalOut         = m_normal * vNormal;
+	vTangentOut        = m_normal * vRotatedTangent;
+	fTextureHandedness = fHandedness;
+
+	vColorOut          = vColor;
+	vStaticLightDirOut = m_normal * vStaticLightDir;
+
+	fFogFragCoord    = (fogEnabled != 0) ? ffog(vPosOut.z, fogStart, fogEnd) : 0.0;
+}
