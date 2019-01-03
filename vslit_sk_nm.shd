@@ -58,11 +58,11 @@ void main (void) {
 	vSkinnedTangent      = (mat3(m_bones[index]) * vTangent) * vWeight.w + vSkinnedTangent;
 	vSkinnedNormal       = (mat3(m_bones[index]) * vNormal)  * vWeight.w + vSkinnedNormal;
 
-	gl_Position = m_mvp * vSkinnedPos;
-	vPosOut     = m_mv  * vSkinnedPos;
-    vWorldCoord = (m_m  * vSkinnedPos).xyz;
+	gl_Position        = m_mvp * vSkinnedPos;
+	vPosOut            = m_mv  * vSkinnedPos;
+    vWorldCoord        = (m_m  * vSkinnedPos).xyz;
 	
-	vTc = vTcIn;
+	vTc                = vTcIn;
 	
 	vTangentOut        = m_normal * vSkinnedTangent;
 	vNormalOut         = m_normal * vSkinnedNormal;

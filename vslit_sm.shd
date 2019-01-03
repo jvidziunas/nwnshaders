@@ -4,9 +4,7 @@ vslit_sm.shd
 
 */
 #include "common"
-#include "sdf"
 
-#define WORLD_COORDS_MOD_LIMIT 35.0
 #define MAX_LIGHTS 8
 
 uniform highp       mat4  m_mvp;
@@ -38,61 +36,43 @@ attribute           vec4  vPos;
 attribute           vec2  vTcIn;
 attribute           vec3  vNormal;
 
-varying highp       vec4  viewPosition;
+varying highp       vec4  vPosOut;
 varying highp       vec3  vWorldCoord;
 varying             vec2  vTc;
 varying             vec2  vTcEnv;
 varying             vec4  vColorOut;
 varying             float fFogFragCoord;
-varying             float fKeyholeDistance;
-varying highp       vec3  vKeyholeNoiseBase;
 
-void SetKeyholeNoiseBase(vec4 vCoords)
-{
-    if(keyholeCanDissolve == 1)
-    {    
-        highp mat4 tempM = m_m;
-        tempM[3] = mod(tempM[3], WORLD_COORDS_MOD_LIMIT);
-        vKeyholeNoiseBase = (tempM * vCoords).xyz;
-    }
-}
+vec4 shadePoint(in vec3 normal, in vec3 position) {
+    vec3 ambient = vec3(0.0);
+    vec3 diffuse = vec3(0.0);
 
-vec3 Ambient = vec3(0.0);
-vec3 Diffuse = vec3(0.0);
-
-void pointLight(in int i, in vec3 normal, in vec3 position) {
-    vec3  toLight     = lightPosition[i].xyz - position;
-    float attenuation = 1.0 / (lightQuadraticAtten[i] * dot(toLight, toLight) + 1.0);
-    float nDotL       = saturate(dot(normal, normalize(toLight)));
-
-    Diffuse += attenuation * nDotL * lightDiffuse[i].rgb;
-    Ambient += attenuation * lightAmbient[i].rgb;
-}
-
-vec4 computeLighting(in vec3 normal, in vec3 position) {
     for (int i = 0; i < numLights; i++) {
-        pointLight(i, normal, position);
+        vec3  toLight     = lightPosition[i].xyz - position;
+        float attenuation = 1.0 / (lightQuadraticAtten[i] * dot(toLight, toLight) + 1.0);
+        float nDotL       = saturate(dot(normal, normalize(toLight)));
+    
+        ambient += attenuation * lightAmbient[i].rgb;
+        diffuse += attenuation * nDotL * lightDiffuse[i].rgb;
     }
 
     vec3 color = frontLightModelProductSceneColor.rgb + materialFrontEmissive.rgb +
-                 Ambient * materialFrontAmbient.rgb +
-                 Diffuse * materialFrontDiffuse.rgb;
+                 ambient * materialFrontAmbient.rgb +
+                 diffuse * materialFrontDiffuse.rgb;
 
     return vec4(color, materialFrontDiffuse.a);
 }
 
 void main (void) {
-    gl_Position  = m_mvp * vPos;
-    viewPosition = m_mv * vPos;
-    vWorldCoord  = (m_m * vPos).xyz;
+    vec3 normal = normalize(m_normal * vNormal);
 
-    vec3 transformedNormal = normalize(m_normal * vNormal);
-    vColorOut = computeLighting(transformedNormal, viewPosition.xyz);
+    gl_Position   = m_mvp * vPos;
+    vPosOut       = m_mv * vPos;
+    vWorldCoord   = (m_m * vPos).xyz;
 
-    vTc    = (m_texture * vec4(vTcIn.x, vTcIn.y, 0.0, 1.0)).xy;
-    vTcEnv = spheremapTransform(reflect(normalize(viewPosition.xyz), transformedNormal));
-
-    fFogFragCoord    = (fogEnabled != 0) ? ffog(viewPosition.z, fogStart, fogEnd) : 0.0;
-    fKeyholeDistance = (keyholeCanDissolve != 0) ? keyholeSdf(playerPosition, cameraPosition, vWorldCoord) : 3.402823466e+38;
-    SetKeyholeNoiseBase(vPos);
+    vTc           = (m_texture * vec4(vTcIn.x, vTcIn.y, 0.0, 1.0)).xy;
+    vTcEnv        = spheremapTransform(reflect(normalize(vPosOut.xyz), normal));
+    vColorOut     = shadePoint(normal, vPosOut.xyz);
+    
+    fFogFragCoord = (fogEnabled != 0) ? ffog(vPosOut.z, fogStart, fogEnd) : 0.0;
 }

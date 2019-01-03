@@ -36,23 +36,22 @@ varying         vec3   vStaticLightDirOut;
 varying         float  fFogFragCoord;
 
 void main (void) {
-	gl_Position = m_mvp * vPos;
-	vPosOut     = m_mv  * vPos;
-	vWorldCoord = (m_m  * vPos).xyz;
-
-	vTc = (m_texture * vec4(vTcIn.x, vTcIn.y, 0.0, 1.0)).xy;
-	
-	mat4 mTangentRotation = (fHandedness > 0) ? transpose(m_texture) : m_texture;
-	vec3 vRotatedTangent  = (mTangentRotation * vec4(vTangent, 1.0)).xyz;
 	// Gram-Schmidt orthogonalization, since the texture matrix is a rotation around Z, but the normal may not be vertical
-	vRotatedTangent = vRotatedTangent - vNormal * dot(vRotatedTangent, vNormal);
-		
+	mat4 mTangentRotation = (fHandedness > 0.0) ? transpose(m_texture) : m_texture;
+	vec3 tangent  = (mTangentRotation * vec4(vTangent, 1.0)).xyz;
+	tangent = tangent - vNormal * dot(tangent, vNormal);
+
+	gl_Position        = m_mvp * vPos;
+	vPosOut            = m_mv  * vPos;
+	vWorldCoord        = (m_m  * vPos).xyz;
+
+	vTc                = (m_texture * vec4(vTcIn.x, vTcIn.y, 0.0, 1.0)).xy;
 	vNormalOut         = m_normal * vNormal;
-	vTangentOut        = m_normal * vRotatedTangent;
+	vTangentOut        = m_normal * tangent;
 	fTextureHandedness = fHandedness;
 
 	vColorOut          = vColor;
 	vStaticLightDirOut = m_normal * vStaticLightDir;
-
-	fFogFragCoord = (fogEnabled != 0) ? ffog(vPosOut.z, fogStart, fogEnd) : 0.0;
+	
+	fFogFragCoord      = (fogEnabled != 0) ? ffog(vPosOut.z, fogStart, fogEnd) : 0.0;
 }

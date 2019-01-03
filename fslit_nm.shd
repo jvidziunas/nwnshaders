@@ -120,7 +120,7 @@ void main(void) {
 				 specular.rgb  * Specular;
 
 	if (keyholeCanDissolve != 0) { // Isolate this conditional in hopes that the driver will use dynamic branching.
-    	float keyholeDistance = keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + KEYHOLE_BREAKUP_SCALE * simplexNoise(vPosOut.xy * KEYHOLE_NOISE_SCALE);
+    	float keyholeDistance = keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + KEYHOLE_BREAKUP_SCALE * simplexNoise(vWorldCoord.xy * KEYHOLE_NOISE_SCALE);
         clip(keyholeDistance);
     	color *= smoothstep(0.0, KEYHOLE_DARK_BAND_SIZE, keyholeDistance); // Darken edges. Clipped areas will end up black, but we can't see them anyway.
     }
