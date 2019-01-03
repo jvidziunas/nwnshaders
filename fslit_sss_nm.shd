@@ -5,11 +5,9 @@ fslit_sss_nm.shd
 */
 #include "common"
 #include "lit_common"
-#include "noise"
 #include "sdf"
 
-const int   MAX_LIGHTS     = 8;
-const float NO_ATTENUATION = 0.0;
+#define MAX_LIGHTS 8
 
 uniform sampler2D texUnit0;	// base map
 uniform sampler2D texUnit1;	// normal map
@@ -36,6 +34,8 @@ uniform         int   keyholeCanDissolve;
 uniform         vec3  playerPosition;
 uniform         vec3  cameraPosition;
 
+uniform         int   worldtimerTimeOfDay;
+
 varying         vec4  vPosOut;
 varying highp   vec3  vWorldCoord;
 varying         vec3  vNormalOut;
@@ -61,15 +61,14 @@ struct Light {
 };
 
 void main(void) {
-	// Isolate this conditional in hopes that the driver will use dynamic branching.
-    if (keyholeCanDissolve != 0) {
-        if ((keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + 0.2 * gradientNoise(vPosOut.xyz * 8.0)) < 0.0) {
-            discard;
-        }
-    }
-
 	vec4  baseColor = texture0Bound != 0 ? asLinear(texture2D(texUnit0, vTc.xy)) : vec4(1.0);
 	vec3  normal    = buildTSB(vNormalOut, vTangentOut, fTextureHandedness) * unpackNormal(texture2D(texUnit1, vTc.xy).rgb);
 	vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
 	float opacity   = baseColor.a * vColorOut.a * materialFrontDiffuse.a;
+
+	if (keyholeCanDissolve != 0) { // Isolate this conditional in hopes that the driver will use dynamic branching.
+        float keyholeDistance = keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + KEYHOLE_BREAKUP_SCALE * simplexNoise(vPosOut.xy * KEYHOLE_NOISE_SCALE);
+        clip(keyholeDistance);
+        color *= smoothstep(0.0, KEYHOLE_DARK_BAND_SIZE, keyholeDistance); // Darken edges. Clipped areas will end up black, but we can't see them anyway.
+    }
 }

@@ -39,7 +39,7 @@ attribute       vec3  vNormal;
 attribute       vec4  vIndex;
 attribute       vec4  vWeight;
 
-varying highp   vec4  viewPosition;
+varying highp   vec4  vPosOut;
 varying highp   vec3  vWorldCoord;
 varying         vec2  vTc;
 varying         vec2  vTcEnv;
@@ -66,36 +66,35 @@ vec4 computeLighting(in vec3 normal, in vec3 viewPosition) {
     vec3 color = frontLightModelProductSceneColor.rgb + materialFrontEmissive.rgb +
                     Ambient * materialFrontAmbient.rgb +
                     Diffuse * materialFrontDiffuse.rgb;
-
     return vec4(color, materialFrontDiffuse.a);
 }
 
 void main(void) {
-	int  index          = idxmap[int(vIndex.x)];
-	vec4 vSkinnedPos    = (m_bones[index] * vPos) * vWeight.x;
-	vec3 vSkinnedNormal = (mat3(m_bones[index]) * vNormal) * vWeight.x;
+	int  index           = idxmap[int(vIndex.x)];
+    vec4 vSkinnedPos     = (m_bones[index]       * vPos)    * vWeight.x;
+    vec3 vSkinnedNormal  = (mat3(m_bones[index]) * vNormal) * vWeight.x;
 
-	index               = idxmap[int(vIndex.y)];
-	vSkinnedPos         = (m_bones[index] * vPos) * vWeight.y + vSkinnedPos;
-	vSkinnedNormal      = (mat3(m_bones[index]) * vNormal) * vWeight.y + vSkinnedNormal;
+    index                = idxmap[int(vIndex.y)];
+    vSkinnedPos          = (m_bones[index]       * vPos)    * vWeight.y + vSkinnedPos;
+    vSkinnedNormal       = (mat3(m_bones[index]) * vNormal) * vWeight.y + vSkinnedNormal;
 
-	index               = idxmap[int(vIndex.z)];
-	vSkinnedPos         = (m_bones[index] * vPos) * vWeight.z + vSkinnedPos;
-	vSkinnedNormal      = (mat3(m_bones[index]) * vNormal) * vWeight.z + vSkinnedNormal;
+    index                = idxmap[int(vIndex.z)];
+    vSkinnedPos          = (m_bones[index]       * vPos)    * vWeight.z + vSkinnedPos;
+    vSkinnedNormal       = (mat3(m_bones[index]) * vNormal) * vWeight.z + vSkinnedNormal;
 
-	index               = idxmap[int(vIndex.w)];
-	vSkinnedPos         = (m_bones[index] * vPos) * vWeight.w + vSkinnedPos;
-	vSkinnedNormal      = (mat3(m_bones[index]) * vNormal) * vWeight.w + vSkinnedNormal;
+    index                = idxmap[int(vIndex.w)];
+    vSkinnedPos          = (m_bones[index]       * vPos)    * vWeight.w + vSkinnedPos;
+    vSkinnedNormal       = (mat3(m_bones[index]) * vNormal) * vWeight.w + vSkinnedNormal;
 
     gl_Position  = m_mvp * vSkinnedPos;
-    viewPosition = m_mv  * vSkinnedPos;
+    vPosOut      = m_mv  * vSkinnedPos;
     vWorldCoord  = (m_m  * vSkinnedPos).xyz;
     
     vec3 transformedNormal = normalize(m_normal * vSkinnedNormal);
-	vColorOut = computeLighting(transformedNormal, viewPosition.xyz);
+	vColorOut = computeLighting(transformedNormal, vPosOut.xyz);
 
 	vTc    = (m_texture * vec4(vTcIn.x, vTcIn.y, 0.0, 1.0)).xy;
-    vTcEnv = spheremapTransform(reflect(normalize(viewPosition.xyz), transformedNormal));
+    vTcEnv = spheremapTransform(reflect(normalize(vPosOut.xyz), transformedNormal));
 
-    fFogFragCoord    = (fogEnabled != 0) ? ffog(viewPosition.z, fogStart, fogEnd) : 0.0;
+    fFogFragCoord = (fogEnabled != 0) ? ffog(vPosOut.z, fogStart, fogEnd) : 0.0;
 }

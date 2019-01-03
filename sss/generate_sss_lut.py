@@ -16,8 +16,12 @@ def christensen_burley_scale_mfp(albedo):
 def christensen_burley_scale_dmfp(albedo):
 	return 1.9 - albedo + 3.5 * fabs(albedo - 0.8)**2
 
+def as_srgb(linear):
+	SRGB_EXPONENT = 1.0 / 2.4
+	return linear <= 0.04045 ? (linear / 12.92) : (1.055 * linear**SRGB_EXPONENT - 0.055)
+
 def as_rgb(red, green, blue):
-	return (int(red*255), int(green*255), int(blue*255))
+	return (int(as_srgb(red)*255), int(as_srgb(green)*255), int(as_srgb(blue)*255))
 
 def generate_lut(width, height, min_radius, max_radius, samples, red_dmfp, green_dmfp, blue_dmfp):
 	EIGHT_PI = 8.0 * pi

@@ -6,6 +6,12 @@ sdf.shd
 #ifndef SDF_SHD
 #define SDF_SHD
 
+#include "noise"
+
+#define KEYHOLE_NOISE_SCALE 1.1
+#define KEYHOLE_BREAKUP_SCALE 0.7
+#define KEYHOLE_Z_START 1.7
+
 float capsuleSdf(in vec3 origin, in vec3 end, in float radius, in vec3 point) {
 	vec3  toOrigin = point - origin;
 	vec3  axis     = end - origin;
@@ -37,7 +43,9 @@ float sdfIntersection(in float sdf0, in float sdf1) {
 }
 
 float keyholeSdf(in vec3 playerPosition, in vec3 cameraPosition, in vec3 objectPosition) {
-	return sdfIntersection(capsuleSdf(playerPosition, cameraPosition, 1.35, objectPosition), playerPosition.z - objectPosition.z + 1.7);
+	// Capsule SDF with additional height-based damping factor. It is assumed that the coordinates provided are in world space since the 'up' vector
+	// used in plane distance calculation is assumed to be (0.0, 0.0, 1.0).
+	return sdfIntersection(capsuleSdf(playerPosition, cameraPosition, 1.35, objectPosition), playerPosition.z - objectPosition.z + KEYHOLE_Z_START);
 }
 
 #endif // SDF_SHD

@@ -3,19 +3,11 @@
 fslit_sm_nm.shd
 
 */
-
-// Set to one to read roughness from specular map green channel.
-#define ROUGHNESS_MAP 0
-// Set to one to read roughness from specular map blue channel.
-#define GLOW_MAP 0
-
 #include "common"
 #include "lit_common"
-#include "noise"
 #include "sdf"
 
 #define MAX_LIGHTS 8
-#define NO_ATTENUATION 0.0
 
 const float fEnvironmentMapMax       = 0.5; // Maximum ratio to decal of environment map.
 const float fEnvironmentMapThreshold = 0.5; // Shininess needs to be this much relative to fShininessMax before applying environment map.
@@ -44,6 +36,8 @@ uniform lowp    vec4  frontLightModelProductSceneColor;
 uniform         int   keyholeCanDissolve;
 uniform         vec3  playerPosition;
 uniform         vec3  cameraPosition;
+
+uniform         int   worldtimerTimeOfDay;
 
 varying         vec4  vPosOut;
 varying highp   vec3  vWorldCoord;
@@ -118,32 +112,22 @@ vec4 getEnvironmentMap(in vec3 toSurface, in vec3 normal) {
 }
 
 void main(void) {
-    // Isolate this conditional in hopes that the driver will use dynamic branching.
-    if (keyholeCanDissolve != 0) {
-        if ((keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + 0.2 * gradientNoise(vPosOut.xyz * 8.0)) < 0.0) {
-            discard;
-        }
-    }
-
     vec4  baseColor = (texture0Bound != 0) ? asLinear(texture2D(texUnit0, vTc.xy)) : vec4(1.0);
     vec3  normal    = buildTSB(vNormalOut, vTangentOut, fTextureHandedness) * unpackNormal(texture2D(texUnit1, vTc.xy).rgb);
     vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
     float opacity   = vColorOut.a * materialFrontDiffuse.a;
 
-#if ROUGHNESS_MAP == 1
-    specular.a = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, 1.0 - specular.g));
-#else
     specular.a = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, specular.a));
-#endif
     computeLighting(normal, vPosOut.xyz, asRoughness(specular.a));
 
     vec3 color = baseColor.rgb * (materialFrontEmissive.rgb + frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
                  specular.rgb  * (Specular + getEnvironmentMap(normalize(vPosOut.xyz), normal).rgb);
-#if GLOW_MAP == 1
-    // Glow.
-    color = mix(color, vec3(1.0), specular.b);
-#endif
 
-    // Gamma correct/tonemap before blending/raster out.
-    gl_FragColor = tonemapOutput(mix(color, fogColor.rgb, saturate(fFogFragCoord)), opacity);
+    if (keyholeCanDissolve != 0) { // Isolate this conditional in hopes that the driver will use dynamic branching.
+        float keyholeDistance = keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + KEYHOLE_BREAKUP_SCALE * simplexNoise(vPosOut.xy * KEYHOLE_NOISE_SCALE);
+        clip(keyholeDistance);
+        color *= smoothstep(0.0, KEYHOLE_DARK_BAND_SIZE, keyholeDistance); // Darken edges. Clipped areas will end up black, but we can't see them anyway.
+    }
+    
+    gl_FragColor = tonemapOutput(mix(color, fogColor.rgb, saturate(fFogFragCoord)), opacity); // Gamma correct/tonemap before blending/raster out.
 }

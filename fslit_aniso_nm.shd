@@ -5,11 +5,9 @@ fslit_aniso_nm.shd
 */
 #include "common"
 #include "lit_common"
-#include "noise"
 #include "sdf"
 
 #define MAX_LIGHTS 8
-#define NO_ATTENUATION 0.0
 
 uniform sampler2D texUnit0;	// base map
 uniform sampler2D texUnit1;	// normal map
@@ -35,6 +33,8 @@ uniform         int   keyholeCanDissolve;
 uniform         vec3  playerPosition;
 uniform         vec3  cameraPosition;
 
+uniform         int   worldtimerTimeOfDay;
+
 uniform         float anisotropy;
 
 varying         vec4  vPosOut;
@@ -46,7 +46,6 @@ varying         vec3  vNormalOut;
 varying         vec3  vTangentOut;
 varying lowp    float fTextureHandedness;
 varying         float fFogFragCoord;
-varying         float fKeyholeDistance;
 
 vec3 Ambient;
 vec3 Diffuse;
@@ -121,13 +120,6 @@ void computeLighting(in vec3 tangent, in vec3 bitangent, in vec3 normal, in vec3
 }
 
 void main(void) {
-	// Isolate this conditional in hopes that the driver will use dynamic branching.
-    if (keyholeCanDissolve != 0) {
-        if ((keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + 0.2 * gradientNoise(vPosOut.xyz * 8.0)) < 0.0) {
-            discard;
-        }
-    }
-
 	vec4  baseColor = (texture0Bound != 0) ? asLinear(texture2D(texUnit0, vTc.xy)) : vec4(1.0);
 	mat3  mTSB      = buildTSB(vNormalOut, vTangentOut, fTextureHandedness);
 	vec3  normal    = normalize(mTSB * unpackNormal(texture2D(texUnit1, vTc.xy).rgb));
@@ -142,6 +134,11 @@ void main(void) {
 	vec3 color = baseColor.rgb * (materialFrontEmissive.rgb + frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
     			 specular.rgb * Specular;
 
-	// Gamma correct/tonemap before blending/raster out.
-    gl_FragColor = tonemapOutput(mix(color, fogColor.rgb, saturate(fFogFragCoord)), opacity);
+    if (keyholeCanDissolve != 0) { // Isolate this conditional in hopes that the driver will use dynamic branching.
+        float keyholeDistance = keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + KEYHOLE_BREAKUP_SCALE * simplexNoise(vPosOut.xy * KEYHOLE_NOISE_SCALE);
+        clip(keyholeDistance);
+        color *= smoothstep(0.0, KEYHOLE_DARK_BAND_SIZE, keyholeDistance); // Darken edges. Clipped areas will end up black, but we can't see them anyway.
+    }
+
+    gl_FragColor = tonemapOutput(mix(color, fogColor.rgb, saturate(fFogFragCoord)), opacity); // Gamma correct/tonemap before blending/raster out.
 }

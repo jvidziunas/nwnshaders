@@ -19,13 +19,13 @@ uniform         int   fogEnabled;
 uniform mediump float fogEnd;
 uniform mediump float fogStart;
 
-attribute      vec4   vPos;
-attribute      vec4   vIndex;
-attribute      vec4   vWeight;
-attribute      vec2   vTcIn;
-attribute      vec3   vNormal;
-attribute      vec3   vTangent;
-attribute      float  fHandedness;
+attribute       vec4  vPos;
+attribute       vec4  vIndex;
+attribute       vec4  vWeight;
+attribute       vec2  vTcIn;
+attribute       vec3  vNormal;
+attribute       vec3  vTangent;
+attribute       float fHandedness;
 
 varying         vec4  vPosOut;
 varying highp   vec3  vWorldCoord;
@@ -38,25 +38,25 @@ varying         vec3  vStaticLightDirOut;
 varying         float fFogFragCoord;
 
 void main (void) {
-	int index            = idxmap[int(vIndex.x)];
-	vec4 vSkinnedPos     = (m_bones[index] * vPos) * vWeight.x;
+	int  index           = idxmap[int(vIndex.x)];
+	vec4 vSkinnedPos     = (m_bones[index]       * vPos)     * vWeight.x;
 	vec3 vSkinnedTangent = (mat3(m_bones[index]) * vTangent) * vWeight.x;
-	vec3 vSkinnedNormal  = (mat3(m_bones[index]) * vNormal) * vWeight.x;
+	vec3 vSkinnedNormal  = (mat3(m_bones[index]) * vNormal)  * vWeight.x;
 
 	index                = idxmap[int(vIndex.y)];
-	vSkinnedPos          = (m_bones[index] * vPos) * vWeight.y + vSkinnedPos;
+	vSkinnedPos          = (m_bones[index]       * vPos)     * vWeight.y + vSkinnedPos;
 	vSkinnedTangent      = (mat3(m_bones[index]) * vTangent) * vWeight.y + vSkinnedTangent;
-	vSkinnedNormal       = (mat3(m_bones[index]) * vNormal) * vWeight.y + vSkinnedNormal;
+	vSkinnedNormal       = (mat3(m_bones[index]) * vNormal)  * vWeight.y + vSkinnedNormal;
 
 	index                = idxmap[int(vIndex.z)];
-	vSkinnedPos          = (m_bones[index] * vPos) * vWeight.z + vSkinnedPos;
+	vSkinnedPos          = (m_bones[index]       * vPos)     * vWeight.z + vSkinnedPos;
 	vSkinnedTangent      = (mat3(m_bones[index]) * vTangent) * vWeight.z + vSkinnedTangent;
-	vSkinnedNormal       = (mat3(m_bones[index]) * vNormal) * vWeight.z + vSkinnedNormal;
+	vSkinnedNormal       = (mat3(m_bones[index]) * vNormal)  * vWeight.z + vSkinnedNormal;
 
 	index                = idxmap[int(vIndex.w)];
-	vSkinnedPos          = (m_bones[index] * vPos) * vWeight.w + vSkinnedPos;
+	vSkinnedPos          = (m_bones[index]       * vPos)     * vWeight.w + vSkinnedPos;
 	vSkinnedTangent      = (mat3(m_bones[index]) * vTangent) * vWeight.w + vSkinnedTangent;
-	vSkinnedNormal       = (mat3(m_bones[index]) * vNormal) * vWeight.w + vSkinnedNormal;
+	vSkinnedNormal       = (mat3(m_bones[index]) * vNormal)  * vWeight.w + vSkinnedNormal;
 
 	gl_Position = m_mvp * vSkinnedPos;
 	vPosOut     = m_mv  * vSkinnedPos;

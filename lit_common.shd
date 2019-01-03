@@ -6,6 +6,10 @@ lit_common.shd
 #ifndef LIT_COMMON_SHD
 #define LIT_COMMON_SHD
 
+#include "common"
+
+#define NO_ATTENUATION 0.0
+
 const float fShininessMax  = 80.0;
 const float fShininessMin  = 8.0;
 
@@ -44,9 +48,9 @@ float getToksvigExponent(inout vec3 bump, in float exponent) {
     return exponent / (exponent * (rlen - 1.0) + 1.0);
 }
 
-float remapGGX(inout vec3 bump) {
+float remapGgx(inout vec3 bump) {
     float len = length(bump);
-    /* [Chan 2018, Material Advances in Call of Duty: WWII] rational function fit for GGX gloss table.
+    /* [Chan 2018, "Material Advances in Call of Duty: WWII"] rational function fit for GGX gloss table.
      * This is in Horner form to take advantage of fused multiply-adds where available. */
     float numerator = len * ((len * (len * 0.56 + 7.42)) + 0.094) + 0.667;
     float denominator = 1.0 - len * (len * 8.84 + 1.09);
@@ -90,7 +94,7 @@ float getSmithVisibility(in float tDotE, in float bDotE, in float nDotE, in floa
 // Estimates the fraction of surface microfacets not occluded by other
 // (implicit/analytic) surface microfacets along the given light and eye
 // directions.
-// [Ashikhmin, Premoze 2007, Distribution-based BRDFs]
+// [Ashikhmin, Premoze 2007, "Distribution-based BRDFs"]
 //
 //=============================================================================
 float getAshikhminVisibility(in float nDotE, in float nDotL) {
@@ -115,7 +119,7 @@ float getGgx(in float nDotH, in float alpha) {
 // getGgx()
 //
 // Estimates the fraction of surface microfacets oriented to reflect light
-// along the eye direction, using anisotropic parameterization defined in
+// along the eye direction, using anisotropic parameterization from
 // [McAuley 2015]
 //
 //=============================================================================
@@ -131,8 +135,8 @@ float getGgx(in float tDotH, in float bDotH, in float nDotH, in float alphaT, in
 // getCharlieD()
 //
 // Estimates the fraction of surface microfacets oriented to reflect light
-// along the eye direction, using parameterization defined in
-// [Estevez, Kulla 2017, Production Friendly Microfacet Sheen BRDF]
+// along the eye direction, using parameterization from
+// [Estevez, Kulla 2017, "Production Friendly Microfacet Sheen BRDF"]
 //
 //=============================================================================
 float getCharlieD(in float nDotH, in float roughness) {
@@ -140,6 +144,20 @@ float getCharlieD(in float nDotH, in float roughness) {
     float cos2h = nDotH * nDotH;
     float sin2h = 1.0 - cos2h;
     return (2.0 + rcpR) * pow(sin2h, rcpR * 0.5) / (2.0 * PI);
+}
+
+//=============================================================================
+//
+// getApproxTranslucency()
+//
+// Approximate forward-scattering phase function similar to Henyey-Greenstein.
+// [Brisebois 2012, "Approximating Translucency Revisited with Simplified Spherical Gaussian"]
+//
+//=============================================================================
+float getApproxTranslucency(in vec3 toLight, in vec3 toEye, in float scatterPower, in float scatterScale, in float ambientScattering, in float thickness) {
+//    vec3  incident = toLight + normal * normalDistortion;
+    float phase = exp2(saturate(dot(toEye, -toLight)) * scatterPower - scatterPower) * scatterScale;
+    return (phase + ambientScattering) * thickness;
 }
 
 #endif // LIT_COMMON_SHD

@@ -4,7 +4,6 @@ vslitc_nm.shd
 
 */
 #include "common"
-#include "sdf"
 
 #define WORLD_COORDS_MOD_LIMIT 35.0
 
@@ -17,10 +16,6 @@ uniform highp   mat4   m_m;
 uniform         int    fogEnabled;
 uniform mediump float  fogEnd;
 uniform mediump float  fogStart;
-
-uniform         int    keyholeCanDissolve;
-uniform         vec3   playerPosition;
-uniform         vec3   cameraPosition;
 
 attribute       vec4   vPos;
 attribute       vec2   vTcIn;
@@ -59,5 +54,5 @@ void main (void) {
 	vColorOut          = vColor;
 	vStaticLightDirOut = m_normal * vStaticLightDir;
 
-	fFogFragCoord    = (fogEnabled != 0) ? ffog(vPosOut.z, fogStart, fogEnd) : 0.0;
+	fFogFragCoord = (fogEnabled != 0) ? ffog(vPosOut.z, fogStart, fogEnd) : 0.0;
 }

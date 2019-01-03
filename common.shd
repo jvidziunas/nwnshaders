@@ -15,11 +15,14 @@ common.shd
 #define USE_PSEUDO_HDR 0
 #endif
 
-#define unpackNormal(val) ((val) * (255.0/127.0) - (128.0/127.0))
-#define saturate(val) clamp((val), 0.0, 1.0)
 #define PI 3.14159265359
+#define HDR_EXPOSURE_SCALAR 1.7
 
-const float fHdrExposure   = 1.7;
+#define unpackNormal(val) ((val) * (255.0/127.0) - (128.0/127.0))
+
+// HLSL intrinsic polyfills.
+#define saturate(val) clamp((val), 0.0, 1.0)
+#define clip(val) if ((val) < 0.0) { discard; }
 
 vec2 spheremapTransform(in vec3 direction) {
     direction.z += 1.0;
@@ -137,7 +140,7 @@ vec4 tonemapOutput(in vec3 hdrColor, in float opacity) {
 // TO CONSIDER: This might be better implemented as a 'switch' parameter that
 // takes one of several values based on user preferences.
 #if USE_PSEUDO_HDR
-    return vec4(hableFilm(hdrColor * fHdrExposure), opacity);
+    return vec4(hableFilm(hdrColor * HDR_EXPOSURE_SCALAR), opacity);
 #else
     return vec4(asGamma(hdrColor), opacity);
 #endif

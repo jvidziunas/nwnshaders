@@ -4,7 +4,6 @@ vslit.shd
 
 */
 #include "common"
-#include "sdf"
 
 #define MAX_LIGHTS 8
 
@@ -34,7 +33,7 @@ attribute       vec2  vTcIn;
 attribute       vec4  vColor;
 attribute       vec3  vNormal;
 
-varying highp   vec4  viewPosition;
+varying highp   vec4  vPosOut;
 varying highp   vec3  vWorldCoord;
 varying         vec2  vTc;
 varying         vec4  vColorOut;
@@ -65,12 +64,12 @@ vec4 computeLighting(in vec3 normal, in vec3 viewPosition) {
 }
 
 void main(void) {
-    gl_Position  = m_mvp * vPos;
-    viewPosition = m_mv  * vPos;
-    vWorldCoord  = (m_m  * vPos).xyz;
+    gl_Position = m_mvp * vPos;
+    vPosOut     = m_mv  * vPos;
+    vWorldCoord = (m_m  * vPos).xyz;
 
-    vTc         = (m_texture * vec4(vTcIn.x, vTcIn.y, 0.0, 1.0)).xy;
-    vColorOut   = computeLighting(m_normal * vNormal, viewPosition.xyz);
+    vTc       = (m_texture * vec4(vTcIn.x, vTcIn.y, 0.0, 1.0)).xy;
+    vColorOut = computeLighting(m_normal * vNormal, vPosOut.xyz);
 
-    fFogFragCoord    = (fogEnabled != 0) ? ffog(viewPosition.z, fogStart, fogEnd) : 0.0;
+    fFogFragCoord = (fogEnabled != 0) ? ffog(vPosOut.z, fogStart, fogEnd) : 0.0;
 }
