@@ -85,8 +85,7 @@ void shadeSurface(in Surface surface, in Light light) {
 //
 //=============================================================================
 void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
-	vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
-	Surface surface = Surface(normal, toEye, roughness * roughness);
+	Surface surface = Surface(normal, normalize(-position), roughness * roughness); // Eye-space position, just need to normalize.
 
 	// Clear the light intensity accumulators
 	Ambient  = vec3(0.0);

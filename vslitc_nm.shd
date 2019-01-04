@@ -53,5 +53,5 @@ void main (void) {
 	vColorOut          = vColor;
 	vStaticLightDirOut = m_normal * vStaticLightDir;
 	
-	fFogFragCoord      = (fogEnabled != 0) ? ffog(vPosOut.z, fogStart, fogEnd) : 0.0;
+	fFogFragCoord      = (fogEnabled != 0) ? linearFog(vPosOut.z, fogStart, fogEnd) : 0.0;
 }

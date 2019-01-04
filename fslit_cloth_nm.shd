@@ -87,8 +87,7 @@ void shadeSurface(in Surface surface, in Light light) {
 //
 //=============================================================================
 void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
-	vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
-	Surface surface = Surface(normal, toEye, roughness);
+	Surface surface = Surface(normal, normalize(-position), roughness); // Eye-space position, just need to normalize.
 
 	Ambient  = vec3(0.0);
 	Diffuse  = vec3(0.0);
@@ -115,7 +114,6 @@ void main(void) {
 
 	vec3 color = baseColor.rgb * (materialFrontEmissive.rgb + frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
     			 specular.rgb  * Specular;
-
 
     if (keyholeCanDissolve != 0) { // Isolate this conditional in hopes that the driver will use dynamic branching.
     	float keyholeDistance = keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + KEYHOLE_BREAKUP_SCALE * simplexNoise(vWorldCoord.xy * KEYHOLE_NOISE_SCALE);

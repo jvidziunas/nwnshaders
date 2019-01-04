@@ -24,13 +24,12 @@ common.shd
 #define saturate(val) clamp((val), 0.0, 1.0)
 #define clip(val) if ((val) < 0.0) { discard; }
 
-vec2 spheremapTransform(in vec3 direction) {
+vec2 asSpheremapXY(in vec3 direction) {
     direction.z += 1.0;
     return direction.xy * inversesqrt(dot(direction, direction)) * 0.5 + 0.5;
 }
 
-float ffog(in float depth, in float startDepth, in float endDepth) {
-    // Make sure to not to clamp this in the vertex stage as we need to be able to get within boundaries through interpolation.
+float linearFog(in float depth, in float startDepth, in float endDepth) {
     // Taking absolute value of distance is important for some GUI elements.
     return (abs(depth) - startDepth) / (endDepth - startDepth);
 }
@@ -97,11 +96,11 @@ float pow5(in float value) {
 //
 //=============================================================================
 mat3 buildTSB(in vec3 normal, in vec3 tangent, in float handedness) {
-    vec3 vNormal  = normalize(normal);
     // Gram-Schmidt orthogonalization.
-    vec3 vTangent = normalize(tangent - vNormal * dot(tangent, vNormal));
+    normal  = normalize(normal);
+    tangent = normalize(tangent - normal * dot(tangent, normal));
     
-    return mat3(vTangent, cross(vNormal, vTangent) * handedness, vNormal);
+    return mat3(tangent, cross(normal, tangent) * handedness, normal);
 }
 
 //=============================================================================
