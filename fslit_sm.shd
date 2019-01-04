@@ -3,7 +3,7 @@
 fslit_sm.shd
 
 */
-#include "common"
+#include "lit_common"
 #include "sdf"
 
 #define MAX_LIGHTS 8
@@ -93,7 +93,8 @@ void main (void) {
 
 	vec4 baseMap = asLinear(texture2D(texUnit0, vTc.xy));
 	vec3 color   = baseMap.rgb * (materialFrontEmissive.rgb + frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb);
-	color        = mix(asLinear(texture2D(texUnitEnv, vTcEnv).rgb), color.rgb, baseMap.a);
+	float f      = fresnelReflectance(dot(normalize(vNormalOut), -normalize(vPosOut.xyz)));
+	color        += (f * (1.0 - baseMap.a)) * asLinear(texture2D(texUnitEnv, vTcEnv).rgb);
 
 	if (keyholeCanDissolve != 0) { // Isolate this conditional in hopes that the driver will use dynamic branching.
         float keyholeDistance = keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + KEYHOLE_BREAKUP_SCALE * simplexNoise(vWorldCoord.xy * KEYHOLE_NOISE_SCALE);

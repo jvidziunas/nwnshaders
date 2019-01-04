@@ -26,6 +26,10 @@ vec3 shiftTangent(in vec3 tangent, in vec3 normal, in float amount) {
 	return normalize(tangent + normal * amount);
 }
 
+float fresnelReflectance(in float nDotH) {
+    return pow5(1.0 - nDotH);
+}
+
 //=============================================================================
 //
 // getToksvigExponent()
