@@ -107,7 +107,7 @@ void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
         shadeSurface(surface, Light(/*direction =*/lightPosition[light].xyz - position, lightAmbient[light].rgb, lightDiffuse[light].rgb, lightQuadraticAtten[light]));
     }
 
-    Specular += fresnelReflectance(dot(toEye, normal)) * asLinear(texture2D(texUnitEnv, asSpheremapXY(reflect(-toEye, normal))));
+    Specular += fresnelReflectance(dot(toEye, normal)) * asLinear(texture2D(texUnitEnv, asSpheremapXY(reflect(-toEye, normal))).rgb);
 }
 
 void main(void) {
