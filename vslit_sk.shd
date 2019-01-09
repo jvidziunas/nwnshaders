@@ -30,6 +30,7 @@ varying highp   vec3  vWorldCoord;
 varying         vec3  vNormalOut;
 varying         vec2  vTc;
 varying         vec2  vTcEnv;
+varying         vec3  vStaticLightDirOut;
 varying         vec4  vColorOut;
 varying         float fFogFragCoord;
 
@@ -59,7 +60,9 @@ void main(void) {
 
 	vTc           = (m_texture * vec4(vTcIn.x, vTcIn.y, 0.0, 1.0)).xy;
     vTcEnv        = asSpheremapXY(reflect(normalize(vPosOut.xyz), normal));
-    vColorOut     = vec4(0.0, 0.0, 0.0, 1.0);
+
+    vStaticLightDirOut = vec3(0.0);
+    vColorOut          = vec4(0.0, 0.0, 0.0, 1.0);
 
     fFogFragCoord = (fogEnabled != 0) ? linearFog(vPosOut.z, fogStart, fogEnd) : 0.0;
 }

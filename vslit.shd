@@ -5,8 +5,6 @@ vslit.shd
 */
 #include "common"
 
-#define MAX_LIGHTS 8
-
 uniform highp   mat4  m_mvp;
 uniform highp   mat4  m_mv;
 uniform highp   mat4  m_m;
@@ -26,6 +24,7 @@ varying highp   vec4  vPosOut;
 varying highp   vec3  vWorldCoord;
 varying         vec3  vNormalOut;
 varying         vec2  vTc;
+varying         vec3  vStaticLightDirOut;
 varying         vec4  vColorOut;
 varying         float fFogFragCoord;
 
@@ -35,7 +34,9 @@ void main(void) {
     vWorldCoord   = (m_m  * vPos).xyz;
     vNormalOut    = m_normal * vNormal;
     vTc           = (m_texture * vec4(vTcIn.x, vTcIn.y, 0.0, 1.0)).xy;
-    vColorOut     = vColor;
+
+    vStaticLightDirOut = vec3(0.0);
+    vColorOut          = vColor;
 
     fFogFragCoord = (fogEnabled != 0) ? linearFog(vPosOut.z, fogStart, fogEnd) : 0.0;
 }
