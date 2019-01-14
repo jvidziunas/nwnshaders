@@ -34,12 +34,6 @@ float linearFog(in float depth, in float startDepth, in float endDepth) {
     return (abs(depth) - startDepth) / (endDepth - startDepth);
 }
 
-#if 0 // Some drivers freak out at fwidth usage. Wait for version upgrate
-float getCurvature(in vec3 normal, in vec3 position, in float scale) {
-    return saturate(length(fwidth(normal))) / (length(fwidth(position)) * scale);
-}
-#endif
-
 bool anyNonzero(in vec3 values) {
     return any(notEqual(values, vec3(0.0)));
 }

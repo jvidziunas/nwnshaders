@@ -53,6 +53,7 @@ struct Surface {
 	vec3  normal;
 	vec3  toEye;
 	float alpha;
+	float smithE;
 };
 
 struct Light {
@@ -70,7 +71,7 @@ void shadeSurface(in Surface surface, in Light light) {
 	float nDotH       = dot(surface.normal, halfVector);
 
 	float d     = getGgx(nDotH, surface.alpha);
-	float g     = getSmithVisibility(dot(surface.normal, surface.toEye), nDotL, surface.alpha);
+	float g     = getSmithVisibility_fast(surface.smithE, nDotL, surface.alpha);
 	float f     = fresnelReflectance(nDotH);
 
 	vec3  color = attenuation * light.color;
@@ -88,8 +89,9 @@ void shadeSurface(in Surface surface, in Light light) {
 //
 //=============================================================================
 void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
-	Surface surface = Surface(normal, normalize(-position), roughness * roughness); // Eye-space position, just need to normalize.
-
+	vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
+	float   alpha   = roughness * roughness;
+	Surface surface = Surface(normal, toEye, alpha, getSmithTerm(dot(normal, toEye), alpha));
 	// Clear the light intensity accumulators
 	Ambient  = vec3(0.0);
 	Diffuse  = vec3(0.0);
@@ -111,7 +113,7 @@ void main(void) {
 	vec3  normal    = buildTSB(vNormalOut, vTangentOut, fTextureHandedness) * unpackNormal(texture2D(texUnit1, vTc.xy).rgb);
 	vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
 	float opacity   = baseColor.a * vColorOut.a * materialFrontDiffuse.a;
-	specular.a = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, specular.a));
+	specular.a      = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, specular.a));
 
 	/* HACK: We're converting to a Blinn-Phong exponent and then immediately transitioning to a Beckmann roughness value.
 	 * It makes much more sense to move directly from the alpha value directly to roughness coefficient, possibly

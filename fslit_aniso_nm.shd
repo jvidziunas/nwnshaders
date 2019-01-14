@@ -58,6 +58,7 @@ struct Surface {
 	vec3  toEye;
 	float alphaT;
 	float alphaB;
+	float smithE;
 };
 
 struct Light {
@@ -74,16 +75,13 @@ void shadeSurface(in Surface surface, in Light light) {
 	float tDotH       = dot(surface.tangent, halfVector);
 	float bDotH       = dot(surface.bitangent, halfVector);
 	float nDotH       = saturate(dot(surface.normal, halfVector));
-	float tDotE       = dot(surface.tangent, surface.toEye);
-	float bDotE       = dot(surface.bitangent, surface.toEye);
-	float nDotE       = dot(surface.normal, surface.toEye);
 	float tDotL       = dot(surface.tangent, toLight);
 	float bDotL       = dot(surface.bitangent, toLight);
 	float nDotL       = dot(surface.normal, toLight);
 
 	float f    = fresnelReflectance(nDotH);
 	float d    = getGgx(tDotH, bDotH, nDotH, surface.alphaT, surface.alphaB);
-	float g    = getSmithVisibility(tDotE, bDotE, nDotE, tDotL, bDotL, nDotL, surface.alphaT, surface.alphaB);
+	float g    = getSmithVisibility_fast(surface.smithE, dot(surface.normal, surface.toEye), tDotL, bDotL, nDotL, surface.alphaT, surface.alphaB);
 	vec3 color = attenuation * light.color;
 
 	Ambient  += attenuation * light.ambient;
@@ -98,11 +96,12 @@ void shadeSurface(in Surface surface, in Light light) {
 // Calculates lighting contribution for all lights.
 //
 //=============================================================================
-void computeLighting(in vec3 tangent, in vec3 bitangent, in vec3 normal, in vec3 position, in float roughness, in float aspect) {
-	vec3    toEye      = normalize(-position); // Eye-space position, just need to normalize.
-	float   roughnessT = roughness * (1.0 + aspect);
-	float   roughnessB = roughness * (1.0 - aspect);
-	Surface surface    = Surface(tangent, bitangent, normal, toEye, /*alphaT =*/roughnessT * roughnessT, /*alphaB =*/roughnessB * roughnessB);
+void computeLighting(in vec3 tangent, in vec3 bitangent, in vec3 normal, in vec3 position, in float roughnessT, in float roughnessB) {
+	vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
+	float   alphaT  = roughnessT * roughnessT;
+	float   alphaB  = roughnessB * roughnessB;
+	float   smithE  = getSmithTerm(dot(tangent, toEye), dot(bitangent, toEye), dot(normal, toEye), alphaT, alphaB);
+	Surface surface = Surface(tangent, bitangent, normal, toEye, alphaT, alphaB, smithE);
 
 	// Clear the light intensity accumulators
 	Ambient  = vec3(0.0);
@@ -130,7 +129,8 @@ void main(void) {
 	/* HACK: We're converting to a Blinn-Phong exponent and then immediately transitioning to a Beckmann roughness value.
 	 * It makes much more sense to move directly from the alpha value directly to roughness coefficient, possibly
 	 * using a polynomial/rational function approximation for this conversion. */
-	computeLighting(/*tangent =*/mTSB[0], /*bitangent =*/mTSB[1], normal, vPosOut.xyz, asRoughness(mix(fShininessMin, fShininessMax, specular.a)), anisotropy);
+	float roughness = asRoughness(mix(fShininessMin, fShininessMax, specular.a));
+	computeLighting(/*tangent =*/mTSB[0], /*bitangent =*/mTSB[1], normal, vPosOut.xyz, roughness * (1.0 + anisotropy), roughness * (1.0 - anisotropy));
 
 	vec3 color = baseColor.rgb * (materialFrontEmissive.rgb + frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
     			 specular.rgb * Specular;

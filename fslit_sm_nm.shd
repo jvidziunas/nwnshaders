@@ -57,6 +57,7 @@ struct Surface {
     vec3  normal;
     vec3  toEye;
     float alpha;
+    float smithE;
 };
 
 struct Light {
@@ -72,7 +73,7 @@ void shadeSurface(in Surface surface, in Light light) {
     float nDotL       = dot(surface.normal, toLight);
     float nDotH       = dot(surface.normal, normalize(surface.toEye + toLight));
     float d           = getGgx(nDotH, surface.alpha);
-    float g           = getSmithVisibility(dot(surface.normal, surface.toEye), nDotL, surface.alpha);
+    float g           = getSmithVisibility_fast(surface.smithE, nDotL, surface.alpha);
     float f           = fresnelReflectance(nDotH);
     vec3  color       = attenuation * light.color;
 
@@ -90,7 +91,8 @@ void shadeSurface(in Surface surface, in Light light) {
 //=============================================================================
 void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
     vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
-    Surface surface = Surface(normal, toEye, roughness * roughness);
+    float   alpha   = roughness * roughness;
+    Surface surface = Surface(normal, toEye, alpha, getSmithTerm(dot(toEye, normal), alpha));
 
     // Clear the light intensity accumulators
     Ambient  = vec3(0.0);

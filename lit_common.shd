@@ -52,13 +52,47 @@ float getToksvigExponent(inout vec3 bump, in float exponent) {
     return exponent / (exponent * (rlen - 1.0) + 1.0);
 }
 
-float remapGgx(inout vec3 bump) {
+float remapGgx(inout vec2 bump) {
     float len = length(bump);
     /* [Chan 2018, "Material Advances in Call of Duty: WWII"] rational function fit for GGX gloss table.
      * This is in Horner form to take advantage of fused multiply-adds where available. */
     float numerator = len * ((len * (len * 0.56 + 7.42)) + 0.094) + 0.667;
     float denominator = 1.0 - len * (len * 8.84 + 1.09);
     return numerator / denominator;
+}
+
+float getSmithTerm(in float product, in float alpha) {
+    return product + sqrt(product * (product - product * alpha) + alpha);
+}
+
+float getSmithTerm(in float productX, in float productY, in float product, in float alphaX, in float alphaY) {
+    return sqrt(alphaX * productX * productX + alphaY * productY * productY + product * product);
+}
+
+//=============================================================================
+//
+// getSmithVisibility_fast()
+//
+// Estimates the fraction of surface microfacets not occluded by other
+// (implicit/analytic) surface microfacets along the given light and eye
+// directions. Reuses light-independent calculations to improve efficiency.
+//
+//=============================================================================
+float getSmithVisibility_fast(in float smithE, in float nDotL, in float alpha) {
+    return 1.0 / (smithE * /*smithL=*/getSmithTerm(nDotL, alpha));
+}
+
+//=============================================================================
+//
+// getSmithVisibility_fast()
+//
+// Estimates the fraction of surface microfacets not occluded by other
+// (implicit/analytic) surface microfacets along the given light and eye
+// directions. Reuses light-independent calculations to improve efficiency.
+//
+//=============================================================================
+float getSmithVisibility_fast(in float smithE, in float nDotE, in float tDotL, in float bDotL, in float nDotL, in float alphaT, in float alphaB) {
+    return 0.5 / max((nDotL * smithE) + (nDotE * /*smithL=*/getSmithTerm(tDotL, bDotL, nDotL, alphaT, alphaB)), 1e-5);
 }
 
 //=============================================================================
@@ -71,9 +105,7 @@ float remapGgx(inout vec3 bump) {
 //
 //=============================================================================
 float getSmithVisibility(in float nDotE, in float nDotL, in float alpha) {
-    float smithE = nDotE + sqrt(nDotE * (nDotE - nDotE * alpha) + alpha);
-    float smithL = nDotL + sqrt(nDotL * (nDotL - nDotL * alpha) + alpha);
-    return 1.0 / (smithE * smithL);
+    return getSmithVisibility_fast(/*smithE=*/getSmithTerm(nDotE, alpha), nDotL, alpha);
 }
 
 //=============================================================================
@@ -86,9 +118,7 @@ float getSmithVisibility(in float nDotE, in float nDotL, in float alpha) {
 //
 //=============================================================================
 float getSmithVisibility(in float tDotE, in float bDotE, in float nDotE, in float tDotL, in float bDotL, in float nDotL, in float alphaT, in float alphaB) {
-	float smithE = nDotL * sqrt(alphaT * tDotE * tDotE + alphaB * bDotE * bDotE + nDotE * nDotE);
-	float smithL = nDotE * sqrt(alphaT * tDotL * tDotL + alphaB * bDotL * bDotL + nDotL * nDotL);
-	return 0.5 / max(smithE + smithL, 1e-5);
+    return getSmithVisibility_fast(/*smithE=*/getSmithTerm(tDotE, bDotE, nDotE, alphaT, alphaB), nDotE, tDotL, bDotL, nDotL, alphaT, alphaB);
 }
 
 //=============================================================================
