@@ -75,11 +75,11 @@ void shadeSurface(in Surface surface, in Light light) {
     float d           = getGgx(nDotH, surface.alpha);
     float g           = getSmithVisibility_fast(surface.smithE, nDotL, surface.alpha);
     float f           = fresnelReflectance(nDotH);
-    vec3  color       = attenuation * light.color;
+    vec3  color       = (saturate(nDotL) * attenuation) * light.color;
 
     Ambient  += attenuation * light.ambient;
-    Diffuse  += saturate(nDotL) * color;
-    Specular += saturate(nDotL * 3.0) * (f * d * g) * color;
+    Diffuse  += color;
+    Specular += (d * g) * f * color;
 }
 
 //=============================================================================
@@ -91,7 +91,7 @@ void shadeSurface(in Surface surface, in Light light) {
 //=============================================================================
 void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
     vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
-    float   alpha   = roughness * roughness;
+    float   alpha   = getToksvigAlpha(normal, roughness * roughness);
     Surface surface = Surface(normal, toEye, alpha, getSmithTerm(dot(toEye, normal), alpha));
 
     // Clear the light intensity accumulators
@@ -117,9 +117,8 @@ void main(void) {
     vec3  normal    = buildTSB(vNormalOut, vTangentOut, fTextureHandedness) * unpackNormal(texture2D(texUnit1, vTc.xy).rgb);
     vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
     float opacity   = vColorOut.a * materialFrontDiffuse.a;
-
-    specular.a = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, specular.a));
-    computeLighting(normal, vPosOut.xyz, asRoughness(specular.a));
+    
+    computeLighting(normal, vPosOut.xyz, specular.a);
 
     vec3 color = baseColor.rgb * (materialFrontEmissive.rgb + frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
                  specular.rgb  * Specular;

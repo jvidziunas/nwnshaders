@@ -88,7 +88,7 @@ void shadeSurface(in Surface surface, in Light light) {
 
     Ambient  += attenuation * light.ambient;
     Diffuse  += asLinear(texture2D(texUnit3, vec2(nDotL * 0.5 + 0.5, surface.radius)).rgb) * color;
-    Specular += saturate(nDotL * 3.0) * (f * d * g) * color;
+    Specular += (saturate(nDotL) * d * g) * f * color;
 }
 
 //=============================================================================
@@ -139,5 +139,5 @@ void main(void) {
         color *= smoothstep(0.0, KEYHOLE_DARK_BAND_SIZE, keyholeDistance); // Darken edges. Clipped areas will end up black, but we can't see them anyway.
     }
 
-    gl_FragColor = tonemapOutput(mix(color, fogColor.rgb, saturate(fFogFragCoord)), opacity);  // Gamma correct/tonemap before blending/raster out.
+    gl_FragColor = tonemapOutput(mix(color, fogColor.rgb, saturate(fFogFragCoord)), opacity);
 }

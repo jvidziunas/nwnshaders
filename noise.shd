@@ -6,6 +6,7 @@ noise.shd
 #ifndef NOISE_SHD
 #define NOISE_SHD
 
+// TODO: Make these use some polynomial/Chebyshev sin() approximation
 vec3 hash(in vec3 p) {
     const mat3 BASIS = mat3(vec3(127.1, 311.7, 74.7), vec3(269.5, 183.3, 246.1), vec3(113.5, 271.9, 124.6));
     return 2.0 * fract(sin(BASIS * p) * 43758.5453123) - 1.0;

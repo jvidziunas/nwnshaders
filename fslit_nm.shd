@@ -69,16 +69,14 @@ void shadeSurface(in Surface surface, in Light light) {
 	float attenuation = 1.0 / (light.attenuationCoefficient * dot(light.direction, light.direction) + 1.0);
 	float nDotL       = dot(surface.normal, toLight);
 	float nDotH       = dot(surface.normal, halfVector);
-
-	float d     = getGgx(nDotH, surface.alpha);
-	float g     = getSmithVisibility_fast(surface.smithE, nDotL, surface.alpha);
-	float f     = fresnelReflectance(nDotH);
-
-	vec3  color = attenuation * light.color;
+	float d           = getGgx(nDotH, surface.alpha);
+	float g           = getSmithVisibility_fast(surface.smithE, nDotL, surface.alpha);
+	float f           = fresnelReflectance(nDotH);
+	vec3  color       = (saturate(nDotL) * attenuation) * light.color;
 
 	Ambient  += attenuation * light.ambient;
-	Diffuse  += saturate(nDotL) * color;
-	Specular += saturate(nDotL * 3.0) * (f * d * g) * color;
+	Diffuse  += color;
+	Specular += (d * g) * f * color;
 }
 
 //=============================================================================

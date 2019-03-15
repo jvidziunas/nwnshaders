@@ -32,14 +32,15 @@ float fresnelReflectance(in float nDotH) {
 
 //=============================================================================
 //
-// getToksvigExponent()
+// getToksvigRoughness()
 //
-// Adjusts a Blinn-Phong specular exponent according to normal map variations
-// to eliminate highlight shimmering. `bump` should not be normalized, though
-// the function does return a meaningful result in this case.
+// Adjusts a Beckmann roughness^2/alpha coefficient according to normal map
+// variations to reduce highlight shimmering. `bump` should not be normalized,
+// though the function does return a meaningful (if ineffectual) result in
+// this case.
 //
 //=============================================================================
-float getToksvigExponent(inout vec3 bump, in float exponent) {
+float getToksvigAlpha(inout vec3 bump, in float alpha) {
     float len = length(bump);
     // Sneak a normalize in here since it's useful.
     bump /= len;
@@ -48,8 +49,23 @@ float getToksvigExponent(inout vec3 bump, in float exponent) {
      * Since a saturate modifier will always be cheaper than an arithmetic clamp (or, in the worst case,
      * exactly equal if H/W lacks a notion of said modifier) prefer the [0-1] range over biasing, even
      * though this could result in divide-by-zero. */
-    float rlen = 1.0 / saturate(len);
-    return exponent / (exponent * (rlen - 1.0) + 1.0);
+    float rlen     = 1.0 / saturate(len);
+    float variance = (1.0 - rlen) / rlen;
+    return saturate( alpha + min( 2.0 * variance, 0.18 ) );
+}
+
+float2 getToksvigAlpha(inout vec3 bump, in float2 alpha) {
+    float len = length(bump);
+    // Sneak a normalize in here since it's useful.
+    bump /= len;
+
+    /* While the texture could in theory return an all-0 result, this is very unlikely under typical use.
+     * Since a saturate modifier will always be cheaper than an arithmetic clamp (or, in the worst case,
+     * exactly equal if H/W lacks a notion of said modifier) prefer the [0-1] range over biasing, even
+     * though this could result in divide-by-zero. */
+    float rlen     = 1.0 / saturate(len);
+    float variance = (1.0 - rlen) / rlen;
+    return saturate( alpha + vec2( min( 2.0 * variance, 0.18 ) ) );
 }
 
 float remapGgx(inout vec2 bump) {
@@ -65,8 +81,8 @@ float getSmithTerm(in float product, in float alpha) {
     return product + sqrt(product * (product - product * alpha) + alpha);
 }
 
-float getSmithTerm(in float productX, in float productY, in float product, in float alphaX, in float alphaY) {
-    return sqrt(alphaX * productX * productX + alphaY * productY * productY + product * product);
+float getSmithTerm(in vec3 product, in vec2 alpha) {
+    return sqrt(dot(product.xy * product.xy, alpha) + product.z * product.z);
 }
 
 //=============================================================================
@@ -91,8 +107,8 @@ float getSmithVisibility_fast(in float smithE, in float nDotL, in float alpha) {
 // directions. Reuses light-independent calculations to improve efficiency.
 //
 //=============================================================================
-float getSmithVisibility_fast(in float smithE, in float nDotE, in float tDotL, in float bDotL, in float nDotL, in float alphaT, in float alphaB) {
-    return 0.5 / max((nDotL * smithE) + (nDotE * /*smithL=*/getSmithTerm(tDotL, bDotL, nDotL, alphaT, alphaB)), 1e-5);
+float getSmithVisibility_fast(in float smithE, in float nDotE, in vec3 productL, in vec2 alpha) {
+    return 0.5 / max((nDotL * smithE) + (nDotE * /*smithL=*/getSmithTerm(productL, alpha)), 1e-5);
 }
 
 //=============================================================================
@@ -117,8 +133,8 @@ float getSmithVisibility(in float nDotE, in float nDotL, in float alpha) {
 // directions.
 //
 //=============================================================================
-float getSmithVisibility(in float tDotE, in float bDotE, in float nDotE, in float tDotL, in float bDotL, in float nDotL, in float alphaT, in float alphaB) {
-    return getSmithVisibility_fast(/*smithE=*/getSmithTerm(tDotE, bDotE, nDotE, alphaT, alphaB), nDotE, tDotL, bDotL, nDotL, alphaT, alphaB);
+float getSmithVisibility(in vec3 productE, in vec3 productL, in vec2 alpha) {
+    return getSmithVisibility_fast(/*smithE=*/getSmithTerm(productE, alpha), productE.z, productL, alpha);
 }
 
 //=============================================================================
@@ -157,9 +173,9 @@ float getGgx(in float nDotH, in float alpha) {
 // [McAuley 2015]
 //
 //=============================================================================
-float getGgx(in float tDotH, in float bDotH, in float nDotH, in float alphaT, in float alphaB) {
+float getGgx(in vec3 productH, in vec2 alpha) {
 	float a2 = alphaT * alphaB;
-	vec3  v  = vec3(tDotH / alphaT, bDotH / alphaB, nDotH);
+	vec3  v  = vec3(productH.x / alpha.x, productH.y / alpha.y, saturate(productH.z));
 	float d  = dot(v, v);
 	return 1.0 / (a2 * d * d);
 }

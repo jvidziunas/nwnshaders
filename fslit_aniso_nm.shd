@@ -52,12 +52,9 @@ vec3 Diffuse;
 vec3 Specular;
 
 struct Surface {
-	vec3  tangent;
-	vec3  bitangent;
-	vec3  normal;
+	mat3  tangentBasis;
 	vec3  toEye;
-	float alphaT;
-	float alphaB;
+	vec2  alpha;
 	float smithE;
 };
 
@@ -72,21 +69,16 @@ void shadeSurface(in Surface surface, in Light light) {
 	vec3  toLight     = normalize(light.direction);
 	vec3  halfVector  = normalize(surface.toEye + toLight);
 	float attenuation = 1.0 / (light.attenuationCoefficient * dot(light.direction, light.direction) + 1.0);
-	float tDotH       = dot(surface.tangent, halfVector);
-	float bDotH       = dot(surface.bitangent, halfVector);
-	float nDotH       = saturate(dot(surface.normal, halfVector));
-	float tDotL       = dot(surface.tangent, toLight);
-	float bDotL       = dot(surface.bitangent, toLight);
-	float nDotL       = dot(surface.normal, toLight);
-
-	float f    = fresnelReflectance(nDotH);
-	float d    = getGgx(tDotH, bDotH, nDotH, surface.alphaT, surface.alphaB);
-	float g    = getSmithVisibility_fast(surface.smithE, dot(surface.normal, surface.toEye), tDotL, bDotL, nDotL, surface.alphaT, surface.alphaB);
-	vec3 color = attenuation * light.color;
+	vec3  productL    = surface.tangentBasis * toLight;
+	vec3  productH    = surface.tangentBasis * halfVector;
+	float f           = fresnelReflectance(productH.z);
+	float d           = getGgx(productH, surface.alpha);
+	float g           = getSmithVisibility_fast(surface.smithE, dot(surface.tangentBasis[2], surface.toEye), productL, surface.alpha);
+	vec3  color       = saturate(productL.z) * attenuation * light.color;
 
 	Ambient  += attenuation * light.ambient;
-	Diffuse  += saturate(nDotL) * color;
-	Specular += saturate(nDotL * 3.0) * (f * d * g) * color;
+	Diffuse  += color;
+	Specular += (d * g) * f * color;
 }
 
 //=============================================================================
@@ -96,12 +88,11 @@ void shadeSurface(in Surface surface, in Light light) {
 // Calculates lighting contribution for all lights.
 //
 //=============================================================================
-void computeLighting(in vec3 tangent, in vec3 bitangent, in vec3 normal, in vec3 position, in float roughnessT, in float roughnessB) {
+void computeLighting(in mat3 tangentBasis, in vec3 position, in vec2 roughness) {
 	vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
-	float   alphaT  = roughnessT * roughnessT;
-	float   alphaB  = roughnessB * roughnessB;
-	float   smithE  = getSmithTerm(dot(tangent, toEye), dot(bitangent, toEye), dot(normal, toEye), alphaT, alphaB);
-	Surface surface = Surface(tangent, bitangent, normal, toEye, alphaT, alphaB, smithE);
+	vec2    alpha   = getToksvigAlpha(tangentBasis[2], roughness * roughness);
+	float   smithE  = getSmithTerm(tangentBasis * toEye, alpha);
+	Surface surface = Surface(tangentBasis, toEye, alpha, smithE);
 
 	// Clear the light intensity accumulators
 	Ambient  = vec3(0.0);
@@ -120,17 +111,13 @@ void computeLighting(in vec3 tangent, in vec3 bitangent, in vec3 normal, in vec3
 }
 
 void main(void) {
-	vec4  baseColor = (texture0Bound != 0) ? asLinear(texture2D(texUnit0, vTc.xy)) : vec4(1.0);
-	mat3  mTSB      = buildTSB(vNormalOut, vTangentOut, fTextureHandedness);
-	vec3  normal    = normalize(mTSB * unpackNormal(texture2D(texUnit1, vTc.xy).rgb));
-	vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
-	float opacity   = vColorOut.a * materialFrontDiffuse.a * texture2D(texUnit3, vTc.xy).r;
+	vec4  baseColor    = (texture0Bound != 0) ? asLinear(texture2D(texUnit0, vTc.xy)) : vec4(1.0);
+	mat3  tangentBasis = buildTSB(vNormalOut, vTangentOut, fTextureHandedness);
+	vec3  normal       = tangentBasis * unpackNormal(texture2D(texUnit1, vTc.xy).rgb);
+	vec4  specular     = asLinear(texture2D(texUnit2, vTc.xy));
+	float opacity      = vColorOut.a * materialFrontDiffuse.a * texture2D(texUnit3, vTc.xy).r;
 
-	/* HACK: We're converting to a Blinn-Phong exponent and then immediately transitioning to a Beckmann roughness value.
-	 * It makes much more sense to move directly from the alpha value directly to roughness coefficient, possibly
-	 * using a polynomial/rational function approximation for this conversion. */
-	float roughness = asRoughness(mix(fShininessMin, fShininessMax, specular.a));
-	computeLighting(/*tangent =*/mTSB[0], /*bitangent =*/mTSB[1], normal, vPosOut.xyz, roughness * (1.0 + anisotropy), roughness * (1.0 - anisotropy));
+	computeLighting(mat3(tangentBasis[0], tangentBasis[1], normal), vPosOut.xyz, specular.a * (1.0 + anisotropy), specular.a * (1.0 - anisotropy));
 
 	vec3 color = baseColor.rgb * (materialFrontEmissive.rgb + frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
     			 specular.rgb * Specular;
@@ -141,5 +128,5 @@ void main(void) {
         color *= smoothstep(0.0, KEYHOLE_DARK_BAND_SIZE, keyholeDistance); // Darken edges. Clipped areas will end up black, but we can't see them anyway.
     }
 
-    gl_FragColor = tonemapOutput(mix(color, fogColor.rgb, saturate(fFogFragCoord)), opacity); // Gamma correct/tonemap before blending/raster out.
+    gl_FragColor = tonemapOutput(mix(color, fogColor.rgb, saturate(fFogFragCoord)), opacity);
 }
