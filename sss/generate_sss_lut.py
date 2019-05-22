@@ -92,6 +92,8 @@ if __name__ == "__main__":
 			for pixel in scanline:
 				tga.write(pack('<BBB', *pixel))
 		# Write TGA footer.
+		# No extension data.
+		tga.write(pack('<II', 0, 0))
 		tga.write("TRUEVISION-XFILE.\0".encode('ascii'))
 	with open("{0:s}.mtr".format(args.name), "w") as material:
 		radiusScale = 1 / (args.max_radius - args.min_radius)
