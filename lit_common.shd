@@ -48,7 +48,7 @@ float getToksvigExponent(inout vec3 bump, in float exponent) {
      * Since a saturate modifier will always be cheaper than an arithmetic clamp (or, in the worst case,
      * exactly equal if H/W lacks a notion of said modifier) prefer the [0-1] range over biasing, even
      * though this could result in divide-by-zero. */
-    float rlen = 1.0 / saturate(len);
+    float rlen = rcp(saturate(len));
     return exponent / (exponent * (rlen - 1.0) + 1.0);
 }
 
@@ -79,7 +79,7 @@ float getSmithTerm(in float productX, in float productY, in float product, in fl
 //
 //=============================================================================
 float getSmithVisibility_fast(in float smithE, in float nDotL, in float alpha) {
-    return 1.0 / (smithE * /*smithL=*/getSmithTerm(nDotL, alpha));
+    return rcp(smithE * /*smithL=*/getSmithTerm(nDotL, alpha));
 }
 
 //=============================================================================
@@ -132,7 +132,7 @@ float getSmithVisibility(in float tDotE, in float bDotE, in float nDotE, in floa
 //
 //=============================================================================
 float getAshikhminVisibility(in float nDotE, in float nDotL) {
-    return 1.0 / max(4.0 * (nDotL + nDotE - nDotL * nDotE), 1e-4);
+    return rcp(max(4.0 * (nDotL + nDotE - nDotL * nDotE), 1e-4));
 }
 
 //=============================================================================
@@ -161,7 +161,7 @@ float getGgx(in float tDotH, in float bDotH, in float nDotH, in float alphaT, in
 	float a2 = alphaT * alphaB;
 	vec3  v  = vec3(tDotH / alphaT, bDotH / alphaB, nDotH);
 	float d  = dot(v, v);
-	return 1.0 / (a2 * d * d);
+	return rcp(a2 * d * d);
 }
 
 //=============================================================================
@@ -174,7 +174,7 @@ float getGgx(in float tDotH, in float bDotH, in float nDotH, in float alphaT, in
 //
 //=============================================================================
 float getCharlieD(in float nDotH, in float roughness) {
-    float rcpR  = 1.0 / roughness;
+    float rcpR  = rcp(roughness);
     float cos2h = nDotH * nDotH;
     float sin2h = 1.0 - cos2h;
     return (2.0 + rcpR) * pow(sin2h, rcpR * 0.5) / (2.0 * PI);

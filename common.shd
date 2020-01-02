@@ -23,6 +23,7 @@ common.shd
 // HLSL intrinsic polyfills.
 #define saturate(val) clamp((val), 0.0, 1.0)
 #define clip(val) if ((val) < 0.0) { discard; }
+#define rcp(val) (1.0 / (val))
 
 vec2 asSpheremapXY(in vec3 direction) {
     direction.z += 1.0;

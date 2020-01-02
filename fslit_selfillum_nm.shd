@@ -1,0 +1,135 @@
+/*
+
+fslit_nm.shd
+
+*/
+#include "common"
+#include "lit_common"
+#include "sdf"
+
+#define MAX_LIGHTS 8
+
+uniform sampler2D texUnit0;	// base map
+uniform sampler2D texUnit1;	// normal map
+uniform sampler2D texUnit2;	// specular map
+uniform sampler2D texUnit3; // selfillum map
+
+uniform         int   texture0Bound;
+
+uniform lowp    vec4  fogColor;
+
+uniform lowp    vec4  lightAmbient        [MAX_LIGHTS];
+uniform lowp    vec4  lightDiffuse        [MAX_LIGHTS];
+uniform mediump vec4  lightPosition       [MAX_LIGHTS];
+uniform mediump float lightQuadraticAtten [MAX_LIGHTS];
+uniform         int   numLights;
+
+uniform mediump	vec4  materialFrontAmbient;
+uniform mediump	vec4  materialFrontDiffuse;
+uniform mediump	vec4  materialFrontSpecular;
+uniform mediump	vec4  materialFrontEmissive;
+uniform lowp    vec4  frontLightModelProductSceneColor;
+
+uniform         int   keyholeCanDissolve;
+uniform         vec3  playerPosition;
+uniform         vec3  cameraPosition;
+
+uniform         int   worldtimerTimeOfDay;
+
+varying         vec4  vPosOut;
+varying highp   vec3  vWorldCoord;
+varying         vec3  vNormalOut;
+varying         vec3  vTangentOut;
+varying         float fTextureHandedness;
+varying         vec2  vTc;
+varying         vec4  vColorOut;
+varying         vec3  vStaticLightDirOut;
+varying         float fFogFragCoord;
+
+vec3 Ambient  = vec3(0.0);
+vec3 Diffuse  = vec3(0.0);
+vec3 Specular = vec3(0.0);
+
+struct Surface {
+	vec3  normal;
+	vec3  toEye;
+	float alpha;
+	float smithE;
+};
+
+struct Light {
+	vec3  direction;
+	vec3  ambient;
+	vec3  color;
+	float attenuationCoefficient;
+};
+
+void shadeSurface(in Surface surface, in Light light) {
+	vec3  toLight     = normalize(light.direction);
+	vec3  halfVector  = normalize(surface.toEye + toLight);
+	float attenuation = rcp(light.attenuationCoefficient * dot(light.direction, light.direction) + 1.0);
+	float nDotL       = dot(surface.normal, toLight);
+	float nDotH       = dot(surface.normal, halfVector);
+
+	float d     = getGgx(nDotH, surface.alpha);
+	float g     = getSmithVisibility_fast(surface.smithE, nDotL, surface.alpha);
+	float f     = fresnelReflectance(nDotH);
+
+	vec3  color = attenuation * light.color;
+
+	Ambient  += attenuation * light.ambient;
+	Diffuse  += saturate(nDotL) * color;
+	Specular += saturate(nDotL * 3.0) * (f * d * g) * color;
+}
+
+//=============================================================================
+//
+// computeLighting()
+//
+// Calculates lighting contribution for all lights.
+//
+//=============================================================================
+void computeLighting(in vec3 normal, in vec3 position, in float roughness) {
+	vec3    toEye   = normalize(-position); // Eye-space position, just need to normalize.
+	float   alpha   = roughness * roughness;
+	Surface surface = Surface(normal, toEye, alpha, getSmithTerm(dot(normal, toEye), alpha));
+	// Clear the light intensity accumulators
+	Ambient  = vec3(0.0);
+	Diffuse  = vec3(0.0);
+	Specular = vec3(0.0);
+
+	if (anyNonzero(vStaticLightDirOut)) {
+		shadeSurface(surface, Light(vStaticLightDirOut, /*ambient =*/vec3(0.0), /*color =*/vColorOut.rgb, NO_ATTENUATION));
+	} else {
+		Ambient = vColorOut.rgb;
+	}
+
+	for (int light = 0; light < numLights; light++) {
+		shadeSurface(surface, Light(/*direction =*/lightPosition[light].xyz - position, lightAmbient[light].rgb, lightDiffuse[light].rgb, lightQuadraticAtten[light]));
+	}
+}
+
+void main(void) {
+	vec4  baseColor = (texture0Bound != 0) ? asLinear(texture2D(texUnit0, vTc.xy)) : vec4(1.0);
+	vec3  normal    = buildTSB(vNormalOut, vTangentOut, fTextureHandedness) * unpackNormal(texture2D(texUnit1, vTc.xy).rgb);
+	vec4  specular  = asLinear(texture2D(texUnit2, vTc.xy));
+	float opacity   = baseColor.a * vColorOut.a * materialFrontDiffuse.a;
+	specular.a      = getToksvigExponent(normal, mix(fShininessMin, fShininessMax, specular.a));
+
+	/* HACK: We're converting to a Blinn-Phong exponent and then immediately transitioning to a Beckmann roughness value.
+	 * It makes much more sense to move directly from the alpha value directly to roughness coefficient, possibly
+	 * using a polynomial/rational function approximation for this conversion. */
+	computeLighting(normal, vPosOut.xyz, asRoughness(specular.a));
+
+	vec3 color = baseColor.rgb * (materialFrontEmissive.rgb + frontLightModelProductSceneColor.rgb + Ambient * materialFrontAmbient.rgb + Diffuse * materialFrontDiffuse.rgb) +
+				 specular.rgb  * Specular +
+				 asLinear(texture2D(texUnit3, vTc.xy).rgb);
+
+	if (keyholeCanDissolve != 0) { // Isolate this conditional in hopes that the driver will use dynamic branching.
+    	float keyholeDistance = keyholeSdf(playerPosition, cameraPosition, vWorldCoord) + KEYHOLE_BREAKUP_SCALE * simplexNoise(vWorldCoord.xy * KEYHOLE_NOISE_SCALE);
+        clip(keyholeDistance);
+    	color *= smoothstep(0.0, KEYHOLE_DARK_BAND_SIZE, keyholeDistance); // Darken edges. Clipped areas will end up black, but we can't see them anyway.
+    }
+
+    gl_FragColor = tonemapOutput(mix(color, fogColor.rgb, saturate(fFogFragCoord)), opacity);  // Gamma correct/tonemap before blending/raster out.
+}
